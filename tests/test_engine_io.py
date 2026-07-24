@@ -80,3 +80,25 @@ class ImportFlowersTest(unittest.TestCase):
         opaque = [c for row in d.cells for c in row if c is not None]
         self.assertTrue(opaque, "the rose should not import blank")
         self.assertTrue(all(isinstance(c, tuple) and len(c) == 4 for c in opaque))
+
+
+class RenderTest(unittest.TestCase):
+    def test_a_letter_flower_renders_exactly_like_the_engine(self):
+        g = engine_io.gen_objects()
+        for species in ("lale", "papatya", "kasimpati", "kaktusf"):
+            for model in (0, 1):
+                with self.subTest(species=species, model=model):
+                    mine = engine_io.render(engine_io.import_flower(species, model))
+                    self.assertEqual(mine, g.flower_variant(species, model))
+
+    def test_the_rose_renders_exactly_like_the_engine(self):
+        g = engine_io.gen_objects()
+        for model in (0, 1):
+            mine = engine_io.render(engine_io.import_flower("gul", model))
+            self.assertEqual(mine, g.rose_variant(model))
+
+    def test_an_empty_drawing_renders_fully_transparent(self):
+        from art_kit.model import Drawing, Palette
+        pal = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C", rim="2E0810")
+        grid = engine_io.render(Drawing.blank(16, 4, pal))
+        self.assertTrue(all(px == (0, 0, 0, 0) for row in grid for px in row))

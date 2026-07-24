@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-from art_kit.model import Drawing, Palette
+from art_kit.model import Drawing, Palette, BLOOM_LETTERS, PLANT_LETTERS
 
 # Overridable so a checkout somewhere else can still run the app.
 GEN_OBJECTS_DIR = Path(
@@ -80,3 +80,31 @@ def import_flower(species, model):
 
 def import_all():
     return [import_flower(s, v) for s in SPECIES for v in (0, 1)]
+
+
+def render(drawing):
+    """The drawing as the garden will draw it: rims added, layers composited.
+
+    This is `flower_variant()`'s body with the grid coming from the editor
+    instead of `_FLOWER_BLOOMS`, so the preview cannot disagree with the export.
+    """
+    g = gen_objects()
+    w, h = drawing.width, drawing.height
+    colors = drawing.palette.colors()
+    bloom = g.blank(w, h)
+    plant = g.blank(w, h)
+    raw = g.blank(w, h)
+    for r in range(h):
+        for c in range(w):
+            cell = drawing.cells[r][c]
+            if cell is None:
+                continue
+            if isinstance(cell, tuple):
+                raw[r][c] = cell
+            elif cell in BLOOM_LETTERS:
+                bloom[r][c] = colors[cell]
+            elif cell in PLANT_LETTERS:
+                plant[r][c] = colors[cell]
+    bloom = g.outline(bloom, drawing.palette.rim)
+    plant = g.outline(plant, drawing.palette.plant_rim)
+    return g._rose_compose([plant, bloom, raw])
