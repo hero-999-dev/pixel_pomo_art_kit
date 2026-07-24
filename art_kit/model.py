@@ -6,7 +6,7 @@ can go back into `_FLOWER_BLOOMS`; one with a raw colour in it can still ship as
 a PNG. Keeping both in one grid means the free colour picker is not a second
 document format with its own bugs.
 """
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 LETTERS = "dmlCxSGko"
 BLOOM_LETTERS = "dmlCx"
@@ -94,3 +94,50 @@ class Drawing:
 
     def copy(self):
         return replace(self, cells=[list(row) for row in self.cells])
+
+
+class History:
+    """Undo/redo over whole-grid snapshots, one entry per STROKE.
+
+    A 16x19 grid is 304 cells — snapshotting it is nothing next to the cost of
+    getting a diff-based stack subtly wrong, and a wrong undo loses the artist's
+    work. Snapshots it is.
+    """
+
+    def __init__(self, drawing, limit=200):
+        self.current = drawing
+        self._undo = []
+        self._redo = []
+        self._pending = None
+        self._limit = limit
+
+    def begin_stroke(self):
+        self._pending = self.current.copy()
+
+    def end_stroke(self):
+        if self._pending is None:
+            return
+        before, self._pending = self._pending, None
+        if before.cells == self.current.cells:
+            return  # nothing actually moved
+        self._undo.append(before)
+        del self._undo[:-self._limit]
+        self._redo.clear()
+
+    def can_undo(self):
+        return bool(self._undo)
+
+    def can_redo(self):
+        return bool(self._redo)
+
+    def undo(self):
+        if not self._undo:
+            return
+        self._redo.append(self.current.copy())
+        self.current = self._undo.pop()
+
+    def redo(self):
+        if not self._redo:
+            return
+        self._undo.append(self.current.copy())
+        self.current = self._redo.pop()

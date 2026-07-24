@@ -45,3 +45,54 @@ class DrawingTest(unittest.TestCase):
         clone = d.copy()
         clone.paint(0, 0, "d")
         self.assertIsNone(d.get(0, 0), "editing the copy must not touch the original")
+
+
+from art_kit.model import History
+
+
+class HistoryTest(unittest.TestCase):
+    def setUp(self):
+        self.h = History(Drawing.blank(4, 3, PAL))
+
+    def _stroke(self, *cells):
+        self.h.begin_stroke()
+        for col, row, val in cells:
+            self.h.current.paint(col, row, val)
+        self.h.end_stroke()
+
+    def test_undo_restores_the_grid_before_the_stroke(self):
+        self._stroke((0, 0, "d"), (1, 0, "d"))
+        self.assertEqual(self.h.current.get(1, 0), "d")
+        self.h.undo()
+        self.assertIsNone(self.h.current.get(0, 0))
+        self.assertIsNone(self.h.current.get(1, 0))
+
+    def test_a_drag_is_one_undo_not_one_per_pixel(self):
+        self._stroke((0, 0, "d"), (1, 0, "d"), (2, 0, "d"))
+        self.h.undo()
+        self.assertFalse(self.h.can_undo())
+
+    def test_redo_puts_it_back_then_stops(self):
+        self._stroke((0, 0, "d"))
+        self.h.undo()
+        self.h.redo()
+        self.assertEqual(self.h.current.get(0, 0), "d")
+        self.assertFalse(self.h.can_redo())
+
+    def test_undo_at_the_start_and_redo_at_the_end_do_nothing(self):
+        self.assertFalse(self.h.can_undo())
+        self.h.undo()  # must not raise
+        self.h.redo()  # must not raise
+        self.assertEqual(self.h.current.get(0, 0), None)
+
+    def test_a_new_stroke_after_an_undo_drops_the_redo_branch(self):
+        self._stroke((0, 0, "d"))
+        self.h.undo()
+        self._stroke((1, 1, "m"))
+        self.assertFalse(self.h.can_redo())
+        self.assertEqual(self.h.current.get(1, 1), "m")
+
+    def test_a_stroke_that_changed_nothing_is_not_recorded(self):
+        self.h.begin_stroke()
+        self.h.end_stroke()
+        self.assertFalse(self.h.can_undo())
