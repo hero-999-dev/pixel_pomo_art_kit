@@ -64,12 +64,26 @@ Twelve flowers, two hand-authored models each — **24 drawings**. Not 36: the
 third shipped file per flower, `flower_<id>.png`, is a copy of model 0 used as
 the shop thumbnail, not a separate drawing.
 
-Eleven of the twelve are already character grids and load directly. The rose
-(`gul`) is stored differently — a bloom grid and a stem grid composed with a row
-offset — so it is flattened into one grid on load. The flatten is safe because
-the split back into bloom and plant is by letter class, not by which array a row
-came from, so the reassembled sprite is identical. The rose also needs a palette
-entry synthesised from `_ROSE_PAL`, since it is absent from `_FLOWER_PALS`.
+Eleven of the twelve are already character grids and load directly, as 22
+letter-grid drawings.
+
+The rose (`gul`) is stored differently — a bloom grid and a stem grid composed
+with a row offset — and **cannot be flattened into one letter grid**. This was
+checked against the real data rather than assumed: the stem's first row lands on
+the bloom's last row and collides at two cells (`v0` row 11, `v1` row 9, columns
+7–8, `d` under `S`), and one cell holds one letter, so a flattened grid renders a
+visibly different sprite. Verified by rendering both and comparing.
+
+So the rose loads as a **raw-pixel drawing** instead: the composed RGBA grid
+`rose_variant(v)` produces, before upscaling. It is fully editable and exports
+byte-identically, because the export is that same grid upscaled and written —
+there is no second interpretation step to disagree with. What it cannot do is
+export a `_FLOWER_BLOOMS` grid literal, which is correct: the rose has never
+lived in `_FLOWER_BLOOMS`.
+
+Both paths were proven byte-exact against the shipped assets before this design
+was finalised: `flower_lale_0.png` and `flower_papatya_1.png` via letters,
+`flower_gul_0.png` via raw pixels.
 
 ## Components
 
@@ -109,8 +123,8 @@ database, no binary format, no migration story to maintain.
 - **The bridge is exact.** Load `lale` model 0, change nothing, export the engine
   sprite, compare the bytes to the shipped `flower_lale_0.png`. If the import,
   the render and the writer all agree with `gen_objects.py`, this passes and
-  nothing else needs to argue the point. Repeated for the rose, which is the one
-  that goes through the flatten.
+  nothing else needs to argue the point. Repeated for `papatya` model 1 and for
+  the rose, which travels the raw-pixel path instead of the letter path.
 - **The grid model** — paint, erase, undo past the start, redo past the end,
   duplicate, resize, and that undo restores the exact prior grid rather than a
   shallow copy that shares rows.
