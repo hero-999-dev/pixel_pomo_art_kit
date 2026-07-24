@@ -1,0 +1,124 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from art_kit import engine_io, store
+from art_kit.model import Drawing, Palette
+
+PAL = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C", rim="2E0810")
+
+
+class CodecTest(unittest.TestCase):
+    def test_a_letter_drawing_round_trips(self):
+        original = engine_io.import_flower("lale", 0)
+        clone = store.from_dict(store.to_dict(original))
+        self.assertEqual(clone.cells, original.cells)
+        self.assertEqual(clone.palette, original.palette)
+        self.assertEqual((clone.species, clone.model, clone.kind),
+                         ("lale", 0, "letters"))
+
+    def test_a_letter_drawing_is_stored_as_readable_rows(self):
+        data = store.to_dict(engine_io.import_flower("lale", 0))
+        self.assertIsInstance(data["cells"][0], str)
+        self.assertEqual(len(data["cells"][0]), 16)
+
+    def test_a_raw_pixel_drawing_round_trips(self):
+        original = engine_io.import_flower("gul", 0)
+        clone = store.from_dict(store.to_dict(original))
+        self.assertEqual(clone.cells, original.cells)
+        self.assertEqual(clone.kind, "pixels")
+
+    def test_a_mixed_drawing_round_trips(self):
+        d = engine_io.import_flower("lale", 0)
+        d.paint(0, 0, (1, 2, 3, 255))
+        clone = store.from_dict(store.to_dict(d))
+        self.assertEqual(clone.get(0, 0), (1, 2, 3, 255))
+        self.assertEqual(clone.get(7, 1), d.get(7, 1))
+
+    def test_missing_fields_raise_something_the_app_can_report(self):
+        with self.assertRaises(store.CorruptDrawing):
+            store.from_dict({"name": "x"})
+
+    def test_a_ragged_grid_is_refused_rather_than_half_loaded(self):
+        data = store.to_dict(engine_io.import_flower("lale", 0))
+        data["cells"][2] = "dm"
+        with self.assertRaises(store.CorruptDrawing):
+            store.from_dict(data)
+
+    def test_cells_that_are_not_a_list_of_rows_is_refused(self):
+        # A bare string is iterable-of-characters, so a naive row loop can
+        # "succeed" on it silently instead of rejecting the wrong shape.
+        data = store.to_dict(engine_io.import_flower("lale", 0))
+        data["cells"] = "not a grid"
+        with self.assertRaises(store.CorruptDrawing):
+            store.from_dict(data)
+
+    def test_a_malformed_cell_raises_corrupt_drawing_not_a_bare_exception(self):
+        # A row that is neither a string nor a list (e.g. a stray number from
+        # a hand-edit) must not leak a raw TypeError past the trust boundary,
+        # or one bad file takes down the whole library load with it.
+        data = store.to_dict(engine_io.import_flower("lale", 0))
+        data["cells"][2] = 12345
+        with self.assertRaises(store.CorruptDrawing):
+            store.from_dict(data)
+
+
+class SaveLoadTest(unittest.TestCase):
+    def test_save_overwrites_atomically_leaving_no_temp_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "d.json"
+            store.save(engine_io.import_flower("lale", 0), path)
+            store.save(engine_io.import_flower("lale", 1), path)
+            self.assertEqual(store.load(path).model, 1)
+            self.assertEqual([p.name for p in Path(tmp).iterdir()], ["d.json"])
+
+
+class LibraryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.lib = store.Library(Path(self.tmp.name))
+
+    def test_seeding_writes_all_twenty_four_models(self):
+        self.lib.seed_from_engine()
+        self.assertEqual(len(self.lib.drawings), 24)
+        self.assertEqual(len(list(Path(self.tmp.name).glob("*.json"))), 24)
+
+    def test_seeding_twice_does_not_duplicate(self):
+        self.lib.seed_from_engine()
+        self.lib.seed_from_engine()
+        self.assertEqual(len(self.lib.drawings), 24)
+
+    def test_reopening_the_library_finds_what_was_saved(self):
+        self.lib.seed_from_engine()
+        again = store.Library(Path(self.tmp.name))
+        again.load_all()
+        self.assertEqual(len(again.drawings), 24)
+
+    def test_duplicate_makes_an_independent_copy_with_a_new_name(self):
+        d = self.lib.add(Drawing.blank(16, 4, PAL, name="rose sketch", species="lale"))
+        copy = self.lib.duplicate(d)
+        self.assertNotEqual(copy.name, d.name)
+        copy.paint(0, 0, "m")
+        self.assertIsNone(d.get(0, 0))
+        self.assertEqual(len(self.lib.drawings), 2)
+
+    def test_remove_deletes_the_file_too(self):
+        d = self.lib.add(Drawing.blank(16, 4, PAL, name="gone", species="lale"))
+        self.lib.remove(d)
+        self.assertEqual(self.lib.drawings, [])
+        self.assertEqual(list(Path(self.tmp.name).glob("*.json")), [])
+
+    def test_two_drawings_with_the_same_name_get_separate_files(self):
+        self.lib.add(Drawing.blank(16, 4, PAL, name="same", species="lale"))
+        self.lib.add(Drawing.blank(16, 4, PAL, name="same", species="lale"))
+        self.assertEqual(len(list(Path(self.tmp.name).glob("*.json"))), 2)
+
+    def test_a_corrupt_file_is_skipped_not_fatal(self):
+        self.lib.seed_from_engine()
+        (Path(self.tmp.name) / "broken.json").write_text("{ not json", encoding="utf-8")
+        again = store.Library(Path(self.tmp.name))
+        skipped = again.load_all()
+        self.assertEqual(len(again.drawings), 24)
+        self.assertEqual(len(skipped), 1)
