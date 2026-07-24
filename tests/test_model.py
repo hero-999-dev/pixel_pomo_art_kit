@@ -1,6 +1,6 @@
 import unittest
 
-from art_kit.model import Drawing, Palette
+from art_kit.model import Drawing, History, Palette
 
 PAL = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C",
               rim="2E0810", plant_rim="1E5A24")
@@ -45,9 +45,6 @@ class DrawingTest(unittest.TestCase):
         clone = d.copy()
         clone.paint(0, 0, "d")
         self.assertIsNone(d.get(0, 0), "editing the copy must not touch the original")
-
-
-from art_kit.model import History
 
 
 class HistoryTest(unittest.TestCase):
@@ -96,3 +93,15 @@ class HistoryTest(unittest.TestCase):
         self.h.begin_stroke()
         self.h.end_stroke()
         self.assertFalse(self.h.can_undo())
+
+    def test_the_undo_stack_stops_at_its_limit(self):
+        h = History(Drawing.blank(5, 3, PAL), limit=3)
+        for col in range(5):
+            h.begin_stroke()
+            h.current.paint(col, 0, "d")
+            h.end_stroke()
+        undone = 0
+        while h.can_undo():
+            h.undo()
+            undone += 1
+        self.assertEqual(undone, 3)
