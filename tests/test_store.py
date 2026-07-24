@@ -63,6 +63,28 @@ class CodecTest(unittest.TestCase):
         with self.assertRaises(store.CorruptDrawing):
             store.from_dict(data)
 
+    def test_a_letter_outside_the_alphabet_is_refused(self):
+        # The format is hand-editable; a typo'd letter would otherwise load and
+        # then silently vanish at render time instead of being caught here.
+        data = store.to_dict(engine_io.import_flower("lale", 0))
+        data["cells"][2] = data["cells"][2][:-1] + "Z"
+        with self.assertRaises(store.CorruptDrawing):
+            store.from_dict(data)
+
+    def test_a_colour_cell_of_the_wrong_length_is_refused(self):
+        d = engine_io.import_flower("lale", 0)
+        d.paint(0, 0, (1, 2, 3, 255))
+        data = store.to_dict(d)
+        data["cells"][0][1] = [1, 2, 3]  # three channels, not four
+        with self.assertRaises(store.CorruptDrawing):
+            store.from_dict(data)
+
+    def test_an_unknown_kind_is_refused(self):
+        data = store.to_dict(engine_io.import_flower("lale", 0))
+        data["kind"] = "sculpture"
+        with self.assertRaises(store.CorruptDrawing):
+            store.from_dict(data)
+
 
 class SaveLoadTest(unittest.TestCase):
     def test_save_overwrites_atomically_leaving_no_temp_files(self):
@@ -114,6 +136,18 @@ class LibraryTest(unittest.TestCase):
         self.lib.add(Drawing.blank(16, 4, PAL, name="same", species="lale"))
         self.lib.add(Drawing.blank(16, 4, PAL, name="same", species="lale"))
         self.assertEqual(len(list(Path(self.tmp.name).glob("*.json"))), 2)
+
+    def test_removing_one_of_two_value_equal_drawings_keeps_the_other_usable(self):
+        # Two fresh blanks compare == ; remove must go by identity or it splices
+        # out the wrong one, orphans the survivor from _paths, and the next
+        # save() on it crashes.
+        a = self.lib.add(Drawing.blank(16, 4, PAL, name="same", species="lale"))
+        b = self.lib.add(Drawing.blank(16, 4, PAL, name="same", species="lale"))
+        self.lib.remove(b)
+        self.assertIs(self.lib.drawings[0], a)
+        self.assertEqual(len(self.lib.drawings), 1)
+        self.lib.save(a)  # must not raise KeyError
+        self.assertEqual(len(list(Path(self.tmp.name).glob("*.json"))), 1)
 
     def test_a_corrupt_file_is_skipped_not_fatal(self):
         self.lib.seed_from_engine()

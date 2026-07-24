@@ -10,7 +10,7 @@ import re
 from dataclasses import asdict
 from pathlib import Path
 
-from art_kit.model import Drawing, Palette
+from art_kit.model import Drawing, LETTERS, Palette
 
 FORMAT = 1
 
@@ -51,13 +51,35 @@ def from_dict(data):
         cells = []
         for row in raw:
             if isinstance(row, str):
+                for ch in row:
+                    if ch != "." and ch not in LETTERS:
+                        raise CorruptDrawing(f"unknown letter {ch!r} in a cell")
                 cells.append([ch if ch != "." else None for ch in row])
             else:
-                cells.append([tuple(c) if isinstance(c, list) else c for c in row])
+                out = []
+                for c in row:
+                    if c is None:
+                        out.append(None)
+                    elif isinstance(c, str):
+                        # A mixed drawing serialises as list-rows but keeps its
+                        # letter cells as bare letters alongside the [r,g,b,a]s.
+                        if c not in LETTERS:
+                            raise CorruptDrawing(f"unknown letter {c!r} in a cell")
+                        out.append(c)
+                    elif (isinstance(c, list) and len(c) == 4
+                          and all(isinstance(n, int) for n in c)):
+                        out.append(tuple(c))
+                    else:
+                        raise CorruptDrawing(
+                            f"a colour cell must be null, a letter, or "
+                            f"[r,g,b,a], got {c!r}")
+                cells.append(out)
         width = len(cells[0])
         if any(len(row) != width for row in cells):
             raise CorruptDrawing("rows are not all the same length")
         kind = data.get("kind", "letters")
+        if kind not in ("letters", "pixels"):
+            raise CorruptDrawing(f"unknown kind {kind!r}")
     except (KeyError, TypeError) as exc:
         raise CorruptDrawing(f"missing or malformed field: {exc}") from exc
     return Drawing(name=name, species=species, model=model, cells=cells,
@@ -139,8 +161,9 @@ class Library:
         path = self._paths.pop(id(drawing), None)
         if path and path.exists():
             path.unlink()
-        if drawing in self.drawings:
-            self.drawings.remove(drawing)
+        # By identity, not ==: two value-equal drawings would otherwise let
+        # list.remove() splice out the wrong one and orphan this from _paths.
+        self.drawings = [d for d in self.drawings if d is not drawing]
 
     def duplicate(self, drawing):
         clone = drawing.copy()
