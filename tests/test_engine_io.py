@@ -102,3 +102,68 @@ class RenderTest(unittest.TestCase):
         pal = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C", rim="2E0810")
         grid = engine_io.render(Drawing.blank(16, 4, pal))
         self.assertTrue(all(px == (0, 0, 0, 0) for row in grid for px in row))
+
+
+class ExportTest(unittest.TestCase):
+    ASSETS = Path(r"C:\Users\claude\pixel_pomo\flutter\assets\objects")
+
+    def test_an_untouched_flower_exports_byte_for_byte_as_shipped(self):
+        for species, model in (("lale", 0), ("papatya", 1), ("gul", 0)):
+            with self.subTest(species=species, model=model):
+                shipped = (self.ASSETS / f"flower_{species}_{model}.png").read_bytes()
+                with tempfile.TemporaryDirectory() as tmp:
+                    written = engine_io.export_engine_sprite(
+                        engine_io.import_flower(species, model), Path(tmp))
+                    mine = (Path(tmp) / f"flower_{species}_{model}.png").read_bytes()
+                self.assertEqual(mine, shipped)
+                self.assertTrue(written)
+
+    def test_model_zero_also_writes_the_shop_thumbnail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine_io.export_engine_sprite(engine_io.import_flower("lale", 0), Path(tmp))
+            thumb = (Path(tmp) / "flower_lale.png").read_bytes()
+            shipped = (self.ASSETS / "flower_lale.png").read_bytes()
+        self.assertEqual(thumb, shipped)
+
+    def test_model_one_does_not_overwrite_the_thumbnail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            engine_io.export_engine_sprite(engine_io.import_flower("lale", 1), Path(tmp))
+            self.assertFalse((Path(tmp) / "flower_lale.png").exists())
+
+    def test_engine_export_refuses_a_grid_that_is_not_16_wide(self):
+        from art_kit.model import Drawing
+        d = engine_io.import_flower("lale", 0)
+        narrow = Drawing.blank(12, 4, d.palette, species="lale")
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(engine_io.ExportRefused):
+                engine_io.export_engine_sprite(narrow, Path(tmp))
+
+    def test_png_export_writes_a_readable_file_at_the_asked_scale(self):
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.png"
+            engine_io.export_png(d, out, scale=8)
+            from PIL import Image
+            with Image.open(out) as im:
+                self.assertEqual(im.size, (16 * 8, d.height * 8))
+                self.assertEqual(im.mode, "RGBA")
+
+    def test_jpg_export_flattens_onto_the_given_background(self):
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.jpg"
+            engine_io.export_jpg(d, out, scale=4, background=(255, 0, 0))
+            from PIL import Image
+            with Image.open(out) as im:
+                self.assertEqual(im.mode, "RGB")
+                self.assertEqual(im.getpixel((0, 0)), (254, 0, 0))  # JPEG is lossy
+
+    def test_grid_literal_round_trips_through_the_engines_own_format(self):
+        g = engine_io.gen_objects()
+        text = engine_io.export_grid_literal(engine_io.import_flower("lale", 0))
+        rows = [line.strip().strip(",").strip('"') for line in text.splitlines() if '"' in line]
+        self.assertEqual(rows, list(g._FLOWER_BLOOMS["lale"][0]))
+
+    def test_grid_literal_is_refused_for_a_raw_pixel_drawing(self):
+        with self.assertRaises(engine_io.ExportRefused):
+            engine_io.export_grid_literal(engine_io.import_flower("gul", 0))

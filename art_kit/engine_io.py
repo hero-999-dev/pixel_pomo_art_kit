@@ -108,3 +108,65 @@ def render(drawing):
     bloom = g.outline(bloom, drawing.palette.rim)
     plant = g.outline(plant, drawing.palette.plant_rim)
     return g._rose_compose([plant, bloom, raw])
+
+
+class ExportRefused(Exception):
+    """Raised instead of writing a file the engine could not use."""
+
+
+def _scaled(drawing, scale):
+    return gen_objects().upscale(render(drawing), scale)
+
+
+def export_png(drawing, path, scale=16):
+    gen_objects().write_png(str(path), _scaled(drawing, scale))
+    return Path(path)
+
+
+def export_jpg(drawing, path, scale=16, background=(255, 255, 255)):
+    """JPEG has no alpha, so transparency is flattened onto `background`.
+
+    The caller is told which colour that was rather than the app quietly
+    picking one and the artist finding a white halo later.
+    """
+    from PIL import Image
+    grid = _scaled(drawing, scale)
+    h, w = len(grid), len(grid[0])
+    rgba = Image.new("RGBA", (w, h))
+    rgba.putdata([px for row in grid for px in row])
+    flat = Image.new("RGB", (w, h), background)
+    flat.paste(rgba, mask=rgba.split()[3])
+    flat.save(str(path), "JPEG", quality=95, subsampling=0)
+    return Path(path)
+
+
+def export_engine_sprite(drawing, out_dir):
+    """Write the sprite(s) the garden loads: ×16, RGBA, engine naming."""
+    if drawing.width != 16:
+        raise ExportRefused(
+            f"engine sprites are 16 cells wide, this drawing is {drawing.width}")
+    if not drawing.species:
+        raise ExportRefused("give the drawing a species before exporting it")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    big = _scaled(drawing, 16)
+    written = [out_dir / f"flower_{drawing.species}_{drawing.model}.png"]
+    if drawing.model == 0:
+        # model 0 doubles as the shop thumbnail, exactly as gen_objects does it
+        written.append(out_dir / f"flower_{drawing.species}.png")
+    for path in written:
+        gen_objects().write_png(str(path), big)
+    return written
+
+
+def export_grid_literal(drawing):
+    """The rows as Python source, ready to paste into _FLOWER_BLOOMS."""
+    if not drawing.is_letters():
+        raise ExportRefused(
+            "this drawing has raw colours in it, so it has no letter grid — "
+            "export it as a PNG instead")
+    lines = [f"[  # {drawing.species} model {drawing.model}"]
+    for row in drawing.cells:
+        lines.append('    "' + "".join(c if c else "." for c in row) + '",')
+    lines.append("],")
+    return "\n".join(lines)
