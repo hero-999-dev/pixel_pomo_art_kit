@@ -26,9 +26,8 @@ def gen_objects():
             f"gen_objects.py not found at {path}. Point the PIXEL_POMO_TOOLS "
             f"environment variable at pixel_pomo\\flutter\\tools."
         )
-    if str(GEN_OBJECTS_DIR) not in sys.path:
-        sys.path.insert(0, str(GEN_OBJECTS_DIR))
     spec = importlib.util.spec_from_file_location("gen_objects", path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module

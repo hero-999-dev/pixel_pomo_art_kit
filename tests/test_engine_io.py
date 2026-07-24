@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 from art_kit import engine_io
 
@@ -13,3 +15,22 @@ class ImportBridgeTest(unittest.TestCase):
 
     def test_the_module_is_cached_not_reimported(self):
         self.assertIs(engine_io.gen_objects(), engine_io.gen_objects())
+
+    def test_filenotfound_when_gen_objects_missing(self):
+        # Save original state
+        original_dir = engine_io.GEN_OBJECTS_DIR
+        try:
+            # Create a temporary empty directory
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Clear cache and point to nonexistent gen_objects.py
+                engine_io.gen_objects.cache_clear()
+                engine_io.GEN_OBJECTS_DIR = Path(tmpdir)
+
+                # Assert that FileNotFoundError is raised with path in message
+                with self.assertRaises(FileNotFoundError) as ctx:
+                    engine_io.gen_objects()
+                self.assertIn(str(engine_io.GEN_OBJECTS_DIR), str(ctx.exception))
+        finally:
+            # Restore original state and cache
+            engine_io.GEN_OBJECTS_DIR = original_dir
+            engine_io.gen_objects.cache_clear()
