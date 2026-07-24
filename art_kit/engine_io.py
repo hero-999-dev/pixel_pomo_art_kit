@@ -11,6 +11,8 @@ import os
 import sys
 from pathlib import Path
 
+from art_kit.model import Drawing, Palette
+
 # Overridable so a checkout somewhere else can still run the app.
 GEN_OBJECTS_DIR = Path(
     os.environ.get("PIXEL_POMO_TOOLS", r"C:\Users\claude\pixel_pomo\flutter\tools")
@@ -31,3 +33,50 @@ def gen_objects():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+# Catalogue order — the rose first, the way the shop lists them.
+SPECIES = ["gul", "papatya", "lale", "kaktus", "kaktusf", "kaktusd",
+           "kasimpati", "menekse", "nilufer", "orkide", "begonya", "kamelya"]
+
+
+def _palette_for(species):
+    g = gen_objects()
+    if species == "gul":
+        # The rose predates _FLOWER_PALS and keeps its tones in _ROSE_PAL as
+        # RGBA. Rebuild the hex form so the editor can show real swatches.
+        def hexof(letter):
+            r, gg, b, _ = g._ROSE_PAL[letter]
+            return f"{r:02X}{gg:02X}{b:02X}"
+        return Palette(d=hexof("d"), m=hexof("m"), l=hexof("l"),
+                       centre="F2C94C", rim=g._ROSE_RED_OL,
+                       plant_rim=g._ROSE_GRN_OL)
+    d, m, l, centre, rim = g._FLOWER_PALS[species]
+    return Palette(d=d, m=m, l=l, centre=centre, rim=rim,
+                   plant_rim=g._PLANT_OL.get(species, g._ROSE_GRN_OL))
+
+
+def import_flower(species, model):
+    """One shipped model as an editable drawing."""
+    g = gen_objects()
+    palette = _palette_for(species)
+    name = f"{species}_{model}"
+    if species == "gul":
+        grid = g.rose_variant(model)  # already outlined and composited
+        cells = [[px if px[3] else None for px in row] for row in grid]
+        return Drawing(name=name, species=species, model=model, cells=cells,
+                       palette=palette, kind="pixels")
+    rows = g._FLOWER_BLOOMS[species][model]
+    cells = []
+    for line in rows:
+        row = []
+        for c in range(16):
+            ch = line[c] if c < len(line) else "."
+            row.append(ch if ch != "." else None)
+        cells.append(row)
+    return Drawing(name=name, species=species, model=model, cells=cells,
+                   palette=palette, kind="letters")
+
+
+def import_all():
+    return [import_flower(s, v) for s in SPECIES for v in (0, 1)]

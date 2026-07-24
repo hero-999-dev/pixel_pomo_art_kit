@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from art_kit import engine_io
+from art_kit.model import Drawing
 
 
 class ImportBridgeTest(unittest.TestCase):
@@ -34,3 +35,48 @@ class ImportBridgeTest(unittest.TestCase):
             # Restore original state and cache
             engine_io.GEN_OBJECTS_DIR = original_dir
             engine_io.gen_objects.cache_clear()
+
+
+class ImportFlowersTest(unittest.TestCase):
+    def test_twelve_species_two_models_each(self):
+        drawings = engine_io.import_all()
+        self.assertEqual(len(drawings), 24)
+        self.assertEqual(len(engine_io.SPECIES), 12)
+        self.assertIn("gul", engine_io.SPECIES)
+        self.assertIn("lale", engine_io.SPECIES)
+
+    def test_a_letter_flower_keeps_its_letters_and_size(self):
+        d = engine_io.import_flower("lale", 0)
+        self.assertIsInstance(d, Drawing)
+        self.assertEqual(d.kind, "letters")
+        self.assertEqual(d.width, 16)
+        self.assertTrue(d.is_letters())
+        self.assertIn("m", {c for row in d.cells for c in row})
+
+    def test_the_letters_match_the_engines_own_grid(self):
+        g = engine_io.gen_objects()
+        rows = g._FLOWER_BLOOMS["lale"][0]
+        d = engine_io.import_flower("lale", 0)
+        self.assertEqual(d.height, len(rows))
+        for r, line in enumerate(rows):
+            for c in range(16):
+                expected = line[c] if c < len(line) and line[c] != "." else None
+                self.assertEqual(d.get(c, r), expected, f"cell {c},{r}")
+
+    def test_the_palette_comes_from_the_engine(self):
+        g = engine_io.gen_objects()
+        d, m, l, centre, rim = g._FLOWER_PALS["lale"]
+        pal = engine_io.import_flower("lale", 0).palette
+        self.assertEqual((pal.d, pal.m, pal.l, pal.centre, pal.rim), (d, m, l, centre, rim))
+
+    def test_the_cactuses_use_their_own_green_plant_rim(self):
+        self.assertEqual(engine_io.import_flower("kaktusf", 0).palette.plant_rim, "1E5A24")
+
+    def test_the_rose_imports_as_raw_pixels(self):
+        d = engine_io.import_flower("gul", 0)
+        self.assertEqual(d.kind, "pixels")
+        self.assertFalse(d.is_letters())
+        self.assertEqual(d.width, 16)
+        opaque = [c for row in d.cells for c in row if c is not None]
+        self.assertTrue(opaque, "the rose should not import blank")
+        self.assertTrue(all(isinstance(c, tuple) and len(c) == 4 for c in opaque))
