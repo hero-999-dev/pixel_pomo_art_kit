@@ -1,0 +1,81 @@
+import tempfile
+import unittest
+from pathlib import Path
+
+from art_kit import app, store
+
+
+def _tk_or_skip():
+    import tkinter
+    try:
+        root = tkinter.Tk()
+    except tkinter.TclError as exc:  # no display
+        raise unittest.SkipTest(f"no Tk display: {exc}")
+    root.withdraw()
+    return root
+
+
+class AppSmokeTest(unittest.TestCase):
+    def setUp(self):
+        self.root = _tk_or_skip()
+        self.addCleanup(self.root.destroy)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.lib = store.Library(Path(self.tmp.name))
+        self.lib.seed_from_engine()
+        self.ui = app.ArtKitApp(self.root, self.lib)
+
+    def test_it_opens_on_the_first_drawing_with_all_twenty_four_listed(self):
+        self.assertEqual(len(self.lib.drawings), 24)
+        self.assertIsNotNone(self.ui.history.current)
+
+    def test_a_drag_paints_a_run_of_cells_and_undoes_as_one(self):
+        self.ui.select(self.lib.drawings[1])
+        self.ui.set_tool("draw")
+        self.ui.set_ink("m")
+        self.ui.on_canvas_press(0, 0)
+        self.ui.on_canvas_drag(1, 0)
+        self.ui.on_canvas_drag(2, 0)
+        self.ui.on_canvas_release()
+        current = self.ui.history.current
+        self.assertEqual([current.get(c, 0) for c in (0, 1, 2)], ["m", "m", "m"])
+        self.ui.undo()
+        self.assertNotEqual(self.ui.history.current.get(0, 0), "m")
+
+    def test_the_eraser_clears_a_cell(self):
+        self.ui.select(self.lib.drawings[1])
+        self.ui.set_tool("draw")
+        self.ui.set_ink("m")
+        self.ui.on_canvas_press(3, 3)
+        self.ui.on_canvas_release()
+        self.ui.set_tool("erase")
+        self.ui.on_canvas_press(3, 3)
+        self.ui.on_canvas_release()
+        self.assertIsNone(self.ui.history.current.get(3, 3))
+
+    def test_switching_drawings_keeps_the_edit_on_the_first_one(self):
+        first, second = self.lib.drawings[1], self.lib.drawings[2]
+        self.ui.select(first)
+        self.ui.set_tool("draw")
+        self.ui.set_ink("m")
+        self.ui.on_canvas_press(0, 0)
+        self.ui.on_canvas_release()
+        self.ui.select(second)
+        self.ui.select(first)
+        self.assertEqual(self.ui.history.current.get(0, 0), "m")
+
+    def test_zoom_stays_inside_its_limits(self):
+        for _ in range(50):
+            self.ui.zoom(+1)
+        self.assertLessEqual(self.ui.zoom_level, app.MAX_ZOOM)
+        for _ in range(100):
+            self.ui.zoom(-1)
+        self.assertGreaterEqual(self.ui.zoom_level, app.MIN_ZOOM)
+
+    def test_a_raw_colour_ink_turns_a_letter_drawing_into_a_pixel_one(self):
+        self.ui.select(self.lib.drawings[1])
+        self.ui.set_tool("draw")
+        self.ui.set_ink((10, 20, 30, 255))
+        self.ui.on_canvas_press(0, 0)
+        self.ui.on_canvas_release()
+        self.assertFalse(self.ui.history.current.is_letters())
