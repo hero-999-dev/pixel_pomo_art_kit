@@ -48,6 +48,9 @@ def _palette_for(species):
         def hexof(letter):
             r, gg, b, _ = g._ROSE_PAL[letter]
             return f"{r:02X}{gg:02X}{b:02X}"
+        # _ROSE_PAL has no centre — a rose has no eye to colour. F2C94C is the
+        # centre gold the other species share, here only so the swatch shows
+        # something real. It is not engine data for the rose; don't chase it.
         return Palette(d=hexof("d"), m=hexof("m"), l=hexof("l"),
                        centre="F2C94C", rim=g._ROSE_RED_OL,
                        plant_rim=g._ROSE_GRN_OL)
@@ -115,6 +118,8 @@ class ExportRefused(Exception):
 
 
 def _scaled(drawing, scale):
+    if scale < 1:
+        raise ExportRefused(f"scale must be at least 1, got {scale}")
     return gen_objects().upscale(render(drawing), scale)
 
 

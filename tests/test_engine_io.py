@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from art_kit import engine_io
 from art_kit.model import Drawing
@@ -70,7 +71,21 @@ class ImportFlowersTest(unittest.TestCase):
         self.assertEqual((pal.d, pal.m, pal.l, pal.centre, pal.rim), (d, m, l, centre, rim))
 
     def test_the_cactuses_use_their_own_green_plant_rim(self):
-        self.assertEqual(engine_io.import_flower("kaktusf", 0).palette.plant_rim, "1E5A24")
+        g = engine_io.gen_objects()
+        # _PLANT_OL["kaktusf"] and the _ROSE_GRN_OL fallback are the same string
+        # today, so asserting the value proves nothing about which one was read.
+        # Swap the engine's entry for the length of the test and the lookup has
+        # to show itself.
+        with mock.patch.dict(g._PLANT_OL, {"kaktusf": "ABCDEF"}):
+            self.assertEqual(engine_io.import_flower("kaktusf", 0).palette.plant_rim, "ABCDEF")
+        self.assertEqual(engine_io.import_flower("kaktusf", 0).palette.plant_rim,
+                         g._PLANT_OL["kaktusf"])
+
+    def test_the_roses_rgba_tones_become_hex_in_channel_order(self):
+        pal = engine_io.import_flower("gul", 0).palette
+        # Literals, not a re-run of hexof(): an r/b swap has to fail here.
+        self.assertEqual((pal.d, pal.m, pal.l), ("8E1B2E", "CC2A3D", "F26571"))
+        self.assertEqual(pal.rim, engine_io.gen_objects()._ROSE_RED_OL)
 
     def test_the_rose_imports_as_raw_pixels(self):
         d = engine_io.import_flower("gul", 0)
@@ -96,6 +111,18 @@ class RenderTest(unittest.TestCase):
         for model in (0, 1):
             mine = engine_io.render(engine_io.import_flower("gul", model))
             self.assertEqual(mine, g.rose_variant(model))
+
+    def test_a_letter_grid_with_raw_colours_in_it_renders_both(self):
+        # The colour picker drops raw RGBA onto a letter drawing; both paths
+        # have to survive the same render.
+        from art_kit.model import Palette
+        pal = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C", rim="2E0810")
+        d = Drawing.blank(16, 4, pal)
+        d.paint(2, 1, "m")
+        d.paint(8, 1, (10, 20, 30, 255))
+        grid = engine_io.render(d)
+        self.assertEqual(grid[1][2], pal.colors()["m"])
+        self.assertEqual(grid[1][8], (10, 20, 30, 255))
 
     def test_an_empty_drawing_renders_fully_transparent(self):
         from art_kit.model import Drawing, Palette
@@ -156,7 +183,11 @@ class ExportTest(unittest.TestCase):
             from PIL import Image
             with Image.open(out) as im:
                 self.assertEqual(im.mode, "RGB")
-                self.assertEqual(im.getpixel((0, 0)), (254, 0, 0))  # JPEG is lossy
+                # JPEG is lossy, so the flat background comes back near, not at,
+                # the colour asked for. Pinning the exact value would make a
+                # Pillow upgrade look like a regression.
+                for got, want in zip(im.getpixel((0, 0)), (255, 0, 0)):
+                    self.assertAlmostEqual(got, want, delta=3)
 
     def test_grid_literal_round_trips_through_the_engines_own_format(self):
         g = engine_io.gen_objects()
@@ -167,3 +198,18 @@ class ExportTest(unittest.TestCase):
     def test_grid_literal_is_refused_for_a_raw_pixel_drawing(self):
         with self.assertRaises(engine_io.ExportRefused):
             engine_io.export_grid_literal(engine_io.import_flower("gul", 0))
+
+    def test_engine_export_refuses_a_drawing_with_no_species(self):
+        # A fresh drawing has species="" until the artist picks one.
+        d = engine_io.import_flower("lale", 0)
+        unnamed = Drawing.blank(16, 4, d.palette)
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(engine_io.ExportRefused):
+                engine_io.export_engine_sprite(unnamed, Path(tmp))
+
+    def test_export_refuses_a_scale_below_one(self):
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(engine_io.ExportRefused):
+                engine_io.export_png(d, Path(tmp) / "x.png", scale=0)
+            self.assertFalse((Path(tmp) / "x.png").exists())
