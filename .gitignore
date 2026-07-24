@@ -4,3 +4,6 @@ build/
 dist/
 *.spec
 .superpowers/
+# Runtime-created at the repo root by `python -m art_kit`
+library/
+exports/

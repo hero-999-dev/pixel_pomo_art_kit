@@ -20,7 +20,7 @@ from tkinter import colorchooser, filedialog, messagebox, simpledialog
 from pathlib import Path
 
 from art_kit import engine_io
-from art_kit.model import Drawing, History, Palette, hex_to_rgba
+from art_kit.model import Drawing, History, LETTERS, Palette, hex_to_rgba
 
 MIN_ZOOM, MAX_ZOOM = 4, 48
 DEFAULT_ZOOM = 20
@@ -39,9 +39,11 @@ SLOTS = [("d", "dark"), ("m", "mid"), ("l", "light"), ("C", "centre"),
 READY = ["FF5A5F", "F2C94C", "5FBF4A", "3E8E36", "8E4FE0", "E02C6D",
          "F7EFDD", "1E1E2E", "CDD6F4", "FFFFFF"]
 
-# Where a finished sprite ships to. The artist can browse elsewhere; this is
-# only the dialog's starting point.
-ENGINE_SPRITE_DIR = Path(r"C:\Users\claude\pixel_pomo\flutter\assets\objects")
+# Where the export dialog opens. Deliberately NOT the game's asset folder:
+# pixel_pomo is read-only to this app, and defaulting there risks overwriting a
+# shipped flower_*.png (the very files the byte-equality tests trust). The
+# artist browses over by hand if they really mean to update the game.
+ENGINE_SPRITE_DIR = Path(__file__).resolve().parent.parent / "exports"
 
 
 def _hex(px):
@@ -86,6 +88,14 @@ class ArtKitApp:
         self._refresh_tool_buttons()
 
     def set_ink(self, value):
+        # render() silently drops anything that isn't a palette letter or an
+        # RGBA 4-tuple, so a bad ink would vanish from the canvas with no error.
+        # Catch it here, at the public boundary, instead.
+        ok = ((isinstance(value, str) and value in LETTERS)
+              or (isinstance(value, tuple) and len(value) == 4
+                  and all(isinstance(n, int) for n in value)))
+        if not ok:
+            raise ValueError(f"ink must be a palette letter or an RGBA tuple, got {value!r}")
         self.ink = value
 
     def zoom(self, delta):
@@ -360,6 +370,7 @@ class ArtKitApp:
             messagebox.showerror("Pixel Pomo Art Kit", str(exc))
 
     def _export_engine_sprite(self, drawing):
+        ENGINE_SPRITE_DIR.mkdir(parents=True, exist_ok=True)  # so the picker opens somewhere real
         out_dir = filedialog.askdirectory(
             parent=self.root, title="Export engine sprite",
             initialdir=str(ENGINE_SPRITE_DIR))

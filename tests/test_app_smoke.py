@@ -79,3 +79,23 @@ class AppSmokeTest(unittest.TestCase):
         self.ui.on_canvas_press(0, 0)
         self.ui.on_canvas_release()
         self.assertFalse(self.ui.history.current.is_letters())
+
+    def test_set_ink_rejects_a_value_render_would_silently_drop(self):
+        self.ui.set_ink("m")            # a palette letter is fine
+        self.ui.set_ink((1, 2, 3, 255))  # an RGBA tuple is fine
+        with self.assertRaises(ValueError):
+            self.ui.set_ink("Z")         # not in the alphabet -> would vanish at render
+        with self.assertRaises(ValueError):
+            self.ui.set_ink((1, 2, 3))   # 3 channels, not 4
+
+    def test_the_three_panes_are_wired_up(self):
+        # No display needed, so this guards pane wiring the screenshot can't.
+        import tkinter as tk
+        self.assertIsInstance(self.ui.canvas, tk.Canvas)
+        self.assertIsInstance(self.ui.preview_1x, tk.Canvas)
+        self.assertIsInstance(self.ui.preview_squint, tk.Canvas)
+
+    def test_the_export_dialog_does_not_default_into_the_game_assets(self):
+        # pixel_pomo is read-only to this app; defaulting the picker there risks
+        # clobbering a shipped sprite. The default must live outside that tree.
+        self.assertNotIn("pixel_pomo", str(app.ENGINE_SPRITE_DIR).replace("\\", "/"))
