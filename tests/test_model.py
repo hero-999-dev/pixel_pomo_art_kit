@@ -64,16 +64,16 @@ class DrawingTest(unittest.TestCase):
         d.flood(0, 0, None)  # would recurse forever if not guarded
         self.assertIsNone(d.get(0, 0))
 
-    def test_resize_rows_pads_below_and_crops_below(self):
+    def test_resize_pads_and_crops_right_and_below(self):
         d = Drawing.blank(4, 3, PAL)
         d.paint(1, 1, "m")
-        d.resize_rows(5)
-        self.assertEqual(d.height, 5)
-        self.assertIsNone(d.get(1, 4))
+        d.resize(6, 5)
+        self.assertEqual((d.width, d.height), (6, 5))
+        self.assertIsNone(d.get(5, 4))
         self.assertEqual(d.get(1, 1), "m", "existing cells survive a pad")
-        d.resize_rows(2)
-        self.assertEqual(d.height, 2)
-        self.assertEqual(d.get(1, 1), "m", "cropping stops above the art")
+        d.resize(2, 2)
+        self.assertEqual((d.width, d.height), (2, 2))
+        self.assertEqual(d.get(1, 1), "m", "cropping stops before the art")
 
     def test_copy_does_not_share_rows(self):
         d = Drawing.blank(4, 3, PAL)

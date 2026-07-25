@@ -18,14 +18,21 @@ PIXEL POMO ART KIT — NASIL ÇALIŞTIRILIR?
    halini .bak olarak saklar.
 
 İPUÇLARI
-  Sol tık        çiz (seçili renk/harf kareyi doldurur)
+  Sol tık        çiz (seçili renk kareyi doldurur — bir tık, bir kare)
   Sağ tık        damlalık — karedeki rengi kaleme al
   Sürükleme      kesintisiz çizgi
-  f              doldurma kovası      x   ayna (iki yarıyı aynı anda)
+  f              doldurma kovası (bağlı alanı boyar)
   e              silgi                b   kalem
   Ctrl+Z         geri al              Ctrl+Y  yinele
   Fare tekerleği yakınlaştır/uzaklaştır
-  Palet kutusuna sağ tık → o rengin tonunu değiştir
+  Renk seçimi    sağ alttaki panel: üst şerit = renk tonu,
+                 alttaki kare = açıklık/koyuluk. Tıkla ya da sürükle.
+
+ÇİZİMİ GÖNDERMEK
+  En iyisi: library klasöründeki .json dosyasını gönder (kayıpsız).
+  Ya da: ⋮ menüsünden "Export PNG..." ile resim olarak gönder.
+  Palet, harf, motor ayarı... hiçbiri senin işin değil — sen çiz,
+  gönder; gerisini geliştirici halleder.
 
 -----------------------------------------------------------------
 
@@ -39,6 +46,10 @@ PIXEL POMO ART KIT — HOW TO RUN (English)
 3) The app creates two folders next to itself: library\ (your drawings —
    don't delete) and exports\ (exported sprites).
 
-TIPS: left-click draws, right-click picks the colour under the cursor,
-f = fill bucket, x = mirror, e = eraser, b = brush, Ctrl+Z undo,
-mouse wheel zooms, right-click a palette slot to retune that colour.
+TIPS: left-click draws (one click, one square), right-click picks the
+colour under the cursor, f = fill bucket, e = eraser, b = brush,
+Ctrl+Z undo, mouse wheel zooms. Colours: the panel at the bottom right —
+top strip picks the hue, the square below picks light/dark.
+To send your drawing back: the .json file in library\ (lossless), or
+Export PNG from the ⋮ menu. Palettes and engine details are the
+developer's job, not yours.

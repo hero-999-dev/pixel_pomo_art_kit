@@ -99,30 +99,31 @@ rebuild the Pixel Pomo Art Kit from nothing.
 >   export engine sprite / copy grid literal / rename / delete, plus a button
 >   to start a new blank drawing that carries over the currently open
 >   drawing's species and palette.
-> - An expanding **canvas** in the centre: click or drag to paint with the
+> - An expanding **canvas** in the centre that the grid fills: selecting a
+>   drawing auto-zooms it to fit the pane. Click or drag to paint with the
 >   current tool and ink, interpolating between sparse drag events so a fast
->   stroke stays a continuous line; right-click as an eyedropper that makes
->   the cell under the cursor the current ink; mouse wheel (or `+`/`-`) to
->   zoom, with scrollbars so edge cells stay reachable at maximum zoom; a
->   checkerboard under transparent cells; grid lines once zoomed in enough to
->   show them usefully. Beside it, two small live previews rendered through
->   the exact same code as every export — one at actual size, one at a fixed
->   "squint test" scale so the artist can sanity-check readability without
->   eyeballing a zoom level themselves.
-> - A **tools** pane on the right: draw / erase / flood-fill tools plus a
->   mirror-X toggle that composes with all three (flowers are symmetric —
->   half the clicks), undo/redo, a swatch that always shows what the next
->   click will paint, one button per palette letter coloured from the open
->   drawing's own palette (the active letter visibly pressed; right-clicking
->   a slot recolours that palette entry for the whole drawing — palette edits
->   apply to every undo snapshot rather than being undoable strokes), a row
->   of app-wide ready-made colours, and a free colour picker for anything
->   else.
-> - Library rows also offer: naming a drawing's species (validated to the
->   engine's lowercase id form — this is what unlocks engine export for a
->   brand-new flower), changing its row count (width is the engine's fixed
->   16; a resize is one undoable stroke), and copying the palette as a
->   `_FLOWER_PALS` source line to pair with the grid literal.
+>   stroke stays a continuous line; what is painted is exactly what appears —
+>   one click, one square, no automatic outlines on the artist's own cells;
+>   right-click as an eyedropper that makes the cell under the cursor the
+>   current ink; mouse wheel (or `+`/`-`) to zoom, with scrollbars so edge
+>   cells stay reachable at maximum zoom; a checkerboard under transparent
+>   cells; grid lines once zoomed in enough to show them usefully. Beside it,
+>   two small live previews rendered through the exact same code as every
+>   export — one at actual size, one at a fixed "squint test" scale so the
+>   artist can sanity-check readability without eyeballing a zoom level.
+> - A **tools** pane on the right, top to bottom: draw / erase / flood-fill,
+>   undo/redo, a swatch that always shows what the next click will paint,
+>   thirty ready-made colours, and an embedded full colour panel — a hue
+>   strip over a saturation/value square, the phone-app pattern, no popup
+>   dialog. The artist works in real colours only: the engine's palette
+>   letters and five-tone palettes are deliberately absent from the UI.
+>   Converting a finished drawing into engine letters/palette is the
+>   developer's job, done in code with the bridge's literal exporters.
+> - New drawings start 32x32 — sized for the trees and pets to come, not
+>   just 16-wide flowers. Library rows also offer: naming a drawing's
+>   species (validated to the engine's lowercase id form — what unlocks
+>   engine-sprite export), and changing its width/height as one undoable
+>   stroke (engine flowers keep width 16).
 > - The library keeps a `.bak` of each file as it was when the session first
 >   touched it — the rescue that survives closing the window.
 > - Split the pointer handling in two layers: methods that take grid
@@ -152,4 +153,4 @@ rebuild the Pixel Pomo Art Kit from nothing.
 
 ---
 
-80 tests passing at this version (`python -m unittest discover -s tests -v`).
+81 tests passing at this version (`python -m unittest discover -s tests -v`).

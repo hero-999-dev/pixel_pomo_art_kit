@@ -15,19 +15,15 @@ raise KeyError. `_selected` is kept as the stable, library-registered object;
 so the library and the on-disk file always describe the same drawing the
 library thinks it is holding.
 """
+import colorsys
 import re
 import sys
 import tkinter as tk
-from dataclasses import replace
-from tkinter import colorchooser, filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
 
 from art_kit import engine_io
 from art_kit.model import Drawing, History, LETTERS, Palette, hex_to_rgba
-
-# Palette slot letter -> Palette field, for the right-click colour editor.
-PALETTE_FIELD = {"d": "d", "m": "m", "l": "l", "C": "centre", "x": "rim",
-                 "S": "stem", "G": "leaf", "k": "vein", "o": "plant_rim"}
 
 MIN_ZOOM, MAX_ZOOM = 4, 48
 DEFAULT_ZOOM = 20
@@ -37,14 +33,26 @@ PREVIEW_ZOOM = 8  # the fixed "squint test" scale, independent of the editing zo
 ROW_BG = "#262626"
 ROW_BG_SELECTED = "#3a5f3a"
 
-# The nine palette slots, in the order an artist reaches for them.
+# The engine's palette letters, ONLY so the ink swatch can name a tone the
+# eyedropper picked up from an imported flower. The artist never chooses
+# letters directly — they draw in real colours; turning a finished drawing
+# back into engine letters/palette is the developer's job, done in code.
 SLOTS = [("d", "dark"), ("m", "mid"), ("l", "light"), ("C", "centre"),
          ("x", "bloom seam"), ("S", "stem"), ("G", "leaf"), ("k", "vein"),
          ("o", "plant seam")]
 
-# The app's own ready colours, from Pixel Pomo's themes.
-READY = ["FF5A5F", "F2C94C", "5FBF4A", "3E8E36", "8E4FE0", "E02C6D",
-         "F7EFDD", "1E1E2E", "CDD6F4", "FFFFFF"]
+# Ready colours: Pixel Pomo's own theme tones plus a pixel-art staple range.
+READY = ["FF5A5F", "E02C6D", "9C1B2E", "F2994A", "F2C94C", "F7EFDD",
+         "5FBF4A", "3E8E36", "1E5A24", "27AE60", "6FCF97", "56CCF2",
+         "2D9CDB", "2F80ED", "1B4F72", "8E4FE0", "BB6BD9", "6B2FA0",
+         "F4A6C0", "CC2A3D", "8B5A2B", "5D4037", "3E2723", "CDD6F4",
+         "9AA0B5", "5C6178", "1E1E2E", "000000", "808080", "FFFFFF"]
+
+# The embedded colour panel (a hue strip over a shade square — the phone-app
+# way, no popup dialog).
+PICKER_W, SV_H, HUE_H = 168, 120, 14
+
+NEW_SIZE = 32  # new drawings: room for the trees and pets that are coming
 
 def base_dir():
     """Where the app keeps `library/` and `exports/`: beside the .exe when
@@ -95,8 +103,7 @@ class ArtKitApp:
         self.root = root
         self.library = library
         self.tool = "draw"
-        self.ink = "m"
-        self.mirror = False
+        self.ink = hex_to_rgba("D93645")  # a real colour; letters are engine-side
         self.zoom_level = DEFAULT_ZOOM
         self._histories = {}
         self._painting = False
@@ -114,20 +121,28 @@ class ArtKitApp:
         self.history = self._histories.setdefault(id(drawing), History(drawing))
         self.root.title(f"Pixel Pomo Art Kit — {drawing.name}")
         self._refresh_list()
-        self._refresh_palette()
         self._refresh_ink_ui()
         self._redraw()
+        # Once the window has real dimensions, make the grid fill the middle.
+        self.root.after(80, self.zoom_to_fit)
+
+    def zoom_to_fit(self):
+        """Pick the zoom that makes the whole grid fill the canvas pane."""
+        if self.history is None:
+            return
+        d = self.history.current
+        cw, ch = self.canvas.winfo_width(), self.canvas.winfo_height()
+        if cw < 40 or ch < 40:
+            return  # window not laid out yet (or headless tests)
+        z = max(MIN_ZOOM, min(MAX_ZOOM, cw // d.width, ch // d.height))
+        if z != self.zoom_level:
+            self.zoom_level = z
+            self._draw_main()
 
     def set_tool(self, name):
         if name not in ("draw", "erase", "fill"):
             raise ValueError(f"tool must be 'draw', 'erase' or 'fill', got {name!r}")
         self.tool = name
-        self._refresh_tool_buttons()
-
-    def toggle_mirror(self):
-        # Not a tool: mirroring composes with draw, erase AND fill, so it is a
-        # switch beside them rather than a fourth mode.
-        self.mirror = not self.mirror
         self._refresh_tool_buttons()
 
     def set_ink(self, value):
@@ -201,16 +216,12 @@ class ArtKitApp:
 
     def _apply(self, col, row):
         drawing = self.history.current
-        targets = [(col, row)]
-        if self.mirror:
-            targets.append((drawing.width - 1 - col, row))
-        for c, r in targets:
-            if self.tool == "erase":
-                drawing.erase(c, r)
-            elif self.tool == "fill":
-                drawing.flood(c, r, self.ink)
-            else:
-                drawing.paint(c, r, self.ink)
+        if self.tool == "erase":
+            drawing.erase(col, row)
+        elif self.tool == "fill":
+            drawing.flood(col, row, self.ink)
+        else:
+            drawing.paint(col, row, self.ink)
 
     def _after_change(self):
         live = self.history.current
@@ -303,9 +314,6 @@ class ArtKitApp:
         for btn in self._tool_buttons.values():
             btn.pack(side="left", expand=True, fill="x")
 
-        self._mirror_button = tk.Button(frame, text="MIRROR X", command=self.toggle_mirror)
-        self._mirror_button.pack(fill="x", padx=6, pady=2)
-
         undo_row = tk.Frame(frame, bg="#1e1e1e")
         undo_row.pack(fill="x", padx=6, pady=2)
         tk.Button(undo_row, text="UNDO", command=self.undo).pack(side="left", expand=True, fill="x")
@@ -316,33 +324,67 @@ class ArtKitApp:
         self._ink_swatch = tk.Label(frame, text="", bg="#1e1e1e", fg="#eeeeee")
         self._ink_swatch.pack(fill="x", padx=6, pady=(6, 0))
 
-        tk.Label(frame, text="Palette", bg="#1e1e1e", fg="#cccccc").pack(pady=(10, 0))
-        palette_frame = tk.Frame(frame, bg="#1e1e1e")
-        palette_frame.pack(fill="x", padx=6)
-        self._slot_buttons = {}
-        for letter, label in SLOTS:
-            btn = tk.Button(palette_frame, text=f"{label} ({letter})", anchor="w",
-                             command=lambda letter=letter: self.set_ink(letter))
-            btn.bind("<Button-3>",
-                     lambda e, letter=letter: self._edit_palette_slot(letter))
-            btn.pack(fill="x", pady=1)
-            self._slot_buttons[letter] = btn
-        tk.Label(frame, text="right-click a slot to edit its colour",
-                 bg="#1e1e1e", fg="#777777").pack()
-
         tk.Label(frame, text="Ready colours", bg="#1e1e1e", fg="#cccccc").pack(pady=(10, 0))
         ready_frame = tk.Frame(frame, bg="#1e1e1e")
         ready_frame.pack(fill="x", padx=6)
         for i, hexcode in enumerate(READY):
             btn = tk.Button(ready_frame, bg=f"#{hexcode.lower()}", width=2,
                              command=lambda h=hexcode: self.set_ink(hex_to_rgba(h)))
-            btn.grid(row=i // 5, column=i % 5, padx=1, pady=1, sticky="ew")
+            btn.grid(row=i // 6, column=i % 6, padx=1, pady=1, sticky="ew")
+        for col in range(6):
+            ready_frame.grid_columnconfigure(col, weight=1)
 
-        tk.Button(frame, text="PICK COLOUR\u2026", command=self._pick_color).pack(
-            fill="x", padx=6, pady=10)
+        self._build_picker(frame)
 
         self._refresh_tool_buttons()
         self._refresh_ink_ui()
+
+    def _build_picker(self, frame):
+        """The full colour panel, embedded \u2014 a hue strip over a shade square,
+        the way a phone app does it. No popup, no extra window."""
+        tk.Label(frame, text="Colour", bg="#1e1e1e", fg="#cccccc").pack(pady=(12, 0))
+        self._hue = 0.0
+        self._hue_strip = tk.Canvas(frame, width=PICKER_W, height=HUE_H,
+                                    highlightthickness=0, cursor="crosshair")
+        self._hue_strip.pack(padx=6)
+        for x in range(PICKER_W):
+            r, g, b = colorsys.hsv_to_rgb(x / PICKER_W, 1, 1)
+            self._hue_strip.create_line(
+                x, 0, x, HUE_H,
+                fill=f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}")
+        self._hue_strip.bind("<Button-1>", self._on_hue)
+        self._hue_strip.bind("<B1-Motion>", self._on_hue)
+        self._sv_square = tk.Canvas(frame, width=PICKER_W, height=SV_H,
+                                    highlightthickness=0, cursor="crosshair")
+        self._sv_square.pack(padx=6, pady=(4, 10))
+        self._sv_square.bind("<Button-1>", self._on_sv)
+        self._sv_square.bind("<B1-Motion>", self._on_sv)
+        self._draw_sv_square()
+
+    def _draw_sv_square(self):
+        rows = []
+        for y in range(SV_H):
+            v = 1 - y / SV_H
+            row = []
+            for x in range(PICKER_W):
+                r, g, b = colorsys.hsv_to_rgb(self._hue, x / PICKER_W, v)
+                row.append(f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}")
+            rows.append("{" + " ".join(row) + "}")
+        # Kept on self: the canvas shows the image only while a reference lives.
+        self._sv_image = tk.PhotoImage(width=PICKER_W, height=SV_H)
+        self._sv_image.put(" ".join(rows))
+        self._sv_square.delete("all")
+        self._sv_square.create_image(0, 0, image=self._sv_image, anchor="nw")
+
+    def _on_hue(self, event):
+        self._hue = min(1.0, max(0.0, event.x / PICKER_W))
+        self._draw_sv_square()
+
+    def _on_sv(self, event):
+        s = min(1.0, max(0.0, event.x / PICKER_W))
+        v = min(1.0, max(0.0, 1 - event.y / SV_H))
+        r, g, b = colorsys.hsv_to_rgb(self._hue, s, v)
+        self.set_ink((int(r * 255), int(g * 255), int(b * 255), 255))
 
     def _bind_keys(self):
         self.root.bind("<Control-z>", lambda e: self.undo())
@@ -351,7 +393,6 @@ class ArtKitApp:
         self.root.bind("<Key-e>", lambda e: self.set_tool("erase"))
         self.root.bind("<Key-b>", lambda e: self.set_tool("draw"))
         self.root.bind("<Key-f>", lambda e: self.set_tool("fill"))
-        self.root.bind("<Key-x>", lambda e: self.toggle_mirror())
         self.root.bind("<plus>", lambda e: self.zoom(+1))
         self.root.bind("<KP_Add>", lambda e: self.zoom(+1))
         self.root.bind("<minus>", lambda e: self.zoom(-1))
@@ -409,12 +450,9 @@ class ArtKitApp:
         menu.add_command(label="Export JPG\u2026", command=lambda: self._export_jpg(drawing))
         menu.add_command(label="Export engine sprite\u2026",
                           command=lambda: self._export_engine_sprite(drawing))
-        menu.add_command(label="Copy grid literal", command=lambda: self._copy_grid_literal(drawing))
-        menu.add_command(label="Copy palette literal",
-                          command=lambda: self._copy_palette_literal(drawing))
         menu.add_command(label="Rename\u2026", command=lambda: self._rename(drawing))
         menu.add_command(label="Species\u2026", command=lambda: self._set_species(drawing))
-        menu.add_command(label="Rows\u2026", command=lambda: self._set_rows(drawing))
+        menu.add_command(label="Size\u2026", command=lambda: self._set_size(drawing))
         menu.add_command(label="Delete", command=lambda: self._delete(drawing))
         menu_btn.menu = menu
         menu_btn.config(menu=menu)
@@ -430,7 +468,7 @@ class ArtKitApp:
         else:
             palette = Palette(d="2E2E2E", m="6E6E6E", l="B0B0B0", centre="F2C94C", rim="1A1A1A")
             species, model = "", 0
-        drawing = Drawing.blank(16, 16, palette, species=species, model=model)
+        drawing = Drawing.blank(NEW_SIZE, NEW_SIZE, palette, species=species, model=model)
         self.library.add(drawing)
         self.select(drawing)
 
@@ -470,50 +508,26 @@ class ArtKitApp:
         self.library.save(drawing)
         self._refresh_list()
 
-    def _set_rows(self, drawing):
+    def _set_size(self, drawing):
         if drawing is not self._selected:
             self.select(drawing)
-        n = simpledialog.askinteger(
-            "Pixel Pomo Art Kit", "Rows (width stays 16):",
-            initialvalue=self.history.current.height,
-            minvalue=1, maxvalue=64, parent=self.root)
-        if not n or n == self.history.current.height:
+        d = self.history.current
+        cols = simpledialog.askinteger(
+            "Pixel Pomo Art Kit", "Width (engine flowers need 16):",
+            initialvalue=d.width, minvalue=1, maxvalue=64, parent=self.root)
+        if not cols:
             return
-        # A resize is a stroke: one undo puts the cropped rows back.
+        rows = simpledialog.askinteger(
+            "Pixel Pomo Art Kit", "Height:",
+            initialvalue=d.height, minvalue=1, maxvalue=64, parent=self.root)
+        if not rows or (cols, rows) == (d.width, d.height):
+            return
+        # A resize is a stroke: one undo puts the cropped cells back.
         self.history.begin_stroke()
-        self.history.current.resize_rows(n)
+        d.resize(cols, rows)
         self.history.end_stroke()
         self._after_change()
-
-    def _edit_palette_slot(self, letter):
-        if self.history is None:
-            return
-        pal = self.history.current.palette
-        current = pal.colors()[letter]
-        _rgb, hexcolor = colorchooser.askcolor(
-            parent=self.root, title=f"Colour for {dict(SLOTS)[letter]} ({letter})",
-            initialcolor=_hex(current))
-        if not hexcolor:
-            return
-        new_pal = replace(pal, **{PALETTE_FIELD[letter]: hexcolor.lstrip("#").upper()})
-        # Palette edits are deliberately not undoable strokes; repaint() keeps
-        # every history snapshot on the new palette so undo can't revert it.
-        self.history.repaint(new_pal)
-        self._selected.palette = new_pal
-        self.library.save(self._selected)
-        self._refresh_palette()
-        self._refresh_ink_ui()
-        self._refresh_list()
-        self._redraw()
-
-    def _copy_palette_literal(self, drawing):
-        try:
-            text = engine_io.export_palette_literal(drawing)
-        except engine_io.ExportRefused as exc:
-            messagebox.showerror("Pixel Pomo Art Kit", str(exc))
-            return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
+        self.zoom_to_fit()
 
     def _delete(self, drawing):
         if not messagebox.askyesno(
@@ -576,21 +590,6 @@ class ArtKitApp:
         # or a successful export is indistinguishable from a silent failure.
         messagebox.showinfo("Pixel Pomo Art Kit",
                             "Exported:\n" + "\n".join(str(p) for p in written))
-
-    def _copy_grid_literal(self, drawing):
-        try:
-            text = engine_io.export_grid_literal(drawing)
-        except engine_io.ExportRefused as exc:
-            messagebox.showerror("Pixel Pomo Art Kit", str(exc))
-            return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
-
-    # ---- colour picking ------------------------------------------------
-    def _pick_color(self):
-        _rgb, hexcolor = colorchooser.askcolor(parent=self.root, title="Pick colour")
-        if hexcolor:
-            self.set_ink(hex_to_rgba(hexcolor))
 
     # ---- drawing --------------------------------------------------------
     def _redraw(self):
@@ -657,16 +656,6 @@ class ArtKitApp:
     def _refresh_tool_buttons(self):
         for name, btn in self._tool_buttons.items():
             btn.configure(relief="sunken" if name == self.tool else "raised")
-        mirror_btn = getattr(self, "_mirror_button", None)
-        if mirror_btn is not None:
-            mirror_btn.configure(relief="sunken" if self.mirror else "raised")
-
-    def _refresh_palette(self):
-        if self.history is None:
-            return
-        colors = self.history.current.palette.colors()
-        for letter, btn in self._slot_buttons.items():
-            btn.configure(bg=_hex(colors[letter]), activebackground=_hex(colors[letter]))
 
     def _refresh_ink_ui(self):
         swatch = getattr(self, "_ink_swatch", None)
@@ -683,5 +672,3 @@ class ArtKitApp:
         r, g, b, _a = rgba
         fg = "#000000" if (r * 299 + g * 587 + b * 114) > 128000 else "#ffffff"
         swatch.configure(text=text, bg=_hex(rgba), fg=fg)
-        for letter, btn in getattr(self, "_slot_buttons", {}).items():
-            btn.configure(relief="sunken" if ink == letter else "raised")

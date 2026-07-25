@@ -4,6 +4,63 @@ What was built, round by round. Newest first.
 
 ---
 
+## v4 — the artist's window, redesigned on real feedback (2026-07-25)
+
+**Date:** 2026-07-25
+
+**Prompt (Turkish):** "simdi cizim alani, cok daha büyük olsun kare sayisi,
+cünkü ilerde agac, evcil hayvan modelleri eklenecek, tüm orta alani kaplasin
+kareler, ready colourse biraz daha renk ekle, pick colour kismina basinca
+secmelik bir ekran cikmasin, sag alt taraf full renk secimi olsun, telefon
+uygulamasindaki gibi mesela, yeni bir sekme olmasin, bana bu cizimi birde
+nasil yollayacak export, bu palletteler ne ise yariyor, cizen kisi bunu nasil
+kullanacak, birde anladigim kadariyla cizen kisi bu palette seylerini
+kullanmasa daha iyi, sen onu sprite yaparken otomatik halledersin diye
+düsünüyorum bunu da workflowa ekle, cizer kisi cizip export eder sonra sen
+paletteleri kodlarsin gerekirse, cünkü hic bir manasi yok bu palettenin cizen
+kisi icin, ve hep bir noktaya basinca diger noktalar da doluyor, sevmedim,
+palette kismini direk cikar cizerin gözünden, arka planda sen motora
+aktarirken incelersin, mirror x'i de sevmedim onu da sil gereksiz bir özellik
+palette ve mirror x gitsin sag taraf full renk secme paneli olsun yukardan
+asagi"
+
+**The insight behind it:** the palette letters were engine plumbing leaking
+into the artist's hands — and "pressing one point fills other points too"
+was the engine's automatic rim/outline appearing around every painted
+letter. Both confusions had the same root, so both got the same fix: the
+artist now works in real colours only, where one click is one square and
+nothing appears that wasn't painted. Turning a finished drawing into engine
+letters + palette is the developer's job, in code, afterwards.
+
+**Changes:**
+
+- **Palette UI removed** from the window: no letter slots, no right-click
+  palette editing, no grid/palette-literal menu items. The machinery stays
+  in `engine_io` (`export_grid_literal`, `export_palette_literal`) and
+  `History.repaint()` for the developer's conversion work — it just no
+  longer exists in the artist's view.
+- **MIRROR X removed** — didn't earn its place.
+- **Full colour panel embedded** bottom-right, phone-app style: a hue strip
+  over a saturation/value shade square, click or drag, no popup dialog. The
+  `PICK COLOUR…` chooser window is gone.
+- **Ready colours: 10 → 30** (game theme tones plus a pixel-art staple
+  range), in a six-wide grid.
+- **Bigger canvas for what's coming:** new drawings start **32x32** (trees
+  and pets won't fit 16), `Rows…` became `Size…` (width and height, one
+  undoable stroke), and selecting a drawing now **auto-zooms it to fill the
+  centre pane**.
+- README rewritten around the split: "Sending a drawing back (for the
+  artist)" — send the library `.json` (lossless) or an exported PNG — and
+  "Developer notes: letters and palettes (not the artist's job)".
+  OKUBENI.txt updated to match, including how to send drawings back.
+
+**Tests:** 81, all passing — mirror's test retired with it; new: a fresh
+drawing is 32x32, the colour panel exists (and the palette slots/mirror
+button demonstrably don't), a shade-square click sets a real RGBA ink,
+`resize()` covers width as well as height.
+
+---
+
 ## v3 — the new-species round trip (2026-07-25)
 
 **Date:** 2026-07-25

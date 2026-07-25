@@ -49,39 +49,35 @@ Three panes, left to right:
 
 - **Library.** A scrollable list, one row per drawing: a small thumbnail
   (rendered the same way the canvas is), the drawing's name, and a `⋮` menu —
-  Duplicate, Export PNG…, Export JPG…, Export engine sprite…, Copy grid
-  literal, Copy palette literal, Rename…, Species…, Rows…, Delete. Clicking a
-  row opens it in the canvas. `+ NEW DRAWING` at the bottom starts a blank
-  16-wide drawing, carrying over the species and palette of whatever is
-  currently selected; `Rows…` grows or crops it (width is the engine's fixed
-  16), and `Species…` names a brand-new flower so it can export as an engine
-  sprite.
-- **Canvas.** Click or drag to paint with the current tool and ink colour —
+  Duplicate, Export PNG…, Export JPG…, Export engine sprite…, Rename…,
+  Species…, Size…, Delete. Clicking a row opens it in the canvas.
+  `+ NEW DRAWING` at the bottom starts a blank 32x32 drawing — room for the
+  trees and pets that are coming, not just 16-wide flowers; `Size…` changes
+  its width/height (engine flowers need width 16), and `Species…` names a
+  brand-new flower so it can export as an engine sprite.
+- **Canvas.** The grid fills the middle: selecting a drawing auto-zooms it
+  to fit the pane. Click or drag to paint with the current tool and ink —
   fast drags are interpolated, so a quick stroke is a continuous line, not a
-  trail of dots. **Right-click is an eyedropper**: the cell under the cursor
-  becomes the ink, which is how you continue in the same tone when the eye
-  can't tell `d` from `m` from `l`. The mouse wheel (or `+`/`-`) zooms from
-  4x to 48x, with scrollbars so the edge pixels stay reachable at any zoom;
-  empty cells show a checkerboard; grid lines appear once each cell is 8px
-  or larger. Beside it sit two live previews, both rendered through the same
-  engine code as every export: one at 1x actual size, and one at a fixed
-  "squint test" scale — the same distance check the project already requires
-  before a sprite is accepted, so you don't have to eyeball it yourself.
+  trail of dots, and **what you paint is exactly what appears**: one click,
+  one square. **Right-click is an eyedropper**: the cell under the cursor
+  becomes the ink. The mouse wheel (or `+`/`-`) zooms from 4x to 48x, with
+  scrollbars so the edge pixels stay reachable at any zoom; empty cells show
+  a checkerboard; grid lines appear once each cell is 8px or larger. Beside
+  it sit two live previews, both rendered through the same engine code as
+  every export: one at 1x actual size, and one at a fixed "squint test"
+  scale — the same distance check the project already requires before a
+  sprite is accepted, so you don't have to eyeball it yourself.
 - **Tools.** DRAW / ERASE / FILL (flood fill from the pressed cell, one undo
-  step), a **MIRROR X** toggle that paints both halves at once — flowers are
-  mostly symmetric, so half the clicks — UNDO / REDO, an **ink swatch**
-  showing exactly what the next click will paint, the nine palette-letter
-  slots (dark, mid, light, centre, bloom seam, stem, leaf, vein, plant seam —
-  coloured from the open drawing's own palette, the active one held down;
-  **right-click a slot to change that colour** for the whole drawing, which
-  is how a new species gets its own tones), a row of ten ready-made colours
-  from Pixel Pomo's own theme palette, and a `PICK COLOUR…` button for
-  anything outside the palette.
+  step), UNDO / REDO, an **ink swatch** showing exactly what the next click
+  will paint, thirty ready-made colours, and below them the **full colour
+  panel**, embedded the way a phone app does it — a hue strip over a
+  shade square, click or drag to pick any colour. No popups, no extra
+  windows, no palette jargon.
 
 Keyboard: `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo, `e` / `b` / `f`
-erase/draw/fill, `x` mirror, `+` / `-` zoom. Right-click on the canvas picks
-up the colour under the cursor. The title bar always names the drawing you
-are editing.
+erase/draw/fill, `+` / `-` zoom. Right-click on the canvas picks up the
+colour under the cursor. The title bar always names the drawing you are
+editing.
 
 ## Exports, and which one to hand back to the developer
 
@@ -90,47 +86,39 @@ are editing.
 | **Export PNG…** | An RGBA PNG at 16x (the export dialog just asks where to save it; `export_png`/`export_jpg` underneath both take a `scale` argument if you're driving them from a script instead of the window). | Sharing a look, a reference — anything that isn't shipping straight into the game. |
 | **Export JPG…** | The same render flattened onto white (JPEG has no alpha channel, so transparency has to become some solid colour — the underlying `export_jpg` takes the background as an explicit argument, the window just always calls it with the white default today). | Quick previews outside the game; never for shipping, since the transparency is gone. |
 | **Export engine sprite…** | The actual file(s) the game loads: `flower_<species>_<model>.png` at the engine's real x16 scale, through the same upscale/write code the shipped assets were made with. Exporting a drawing's model 0 also writes `flower_<species>.png`, the shop thumbnail. Refuses a drawing that isn't exactly 16 cells wide, or has no species set. The save dialog opens on a repo-local `exports/` folder — never the game's asset tree, which is read-only to this app — behind a confirmation that names exactly what it will overwrite. | **Hand this back to the developer.** Drop the output into the game's `assets/objects/` and the artwork ships. |
-| **Copy grid literal** | The drawing's rows as Python source text, on the clipboard, ready to paste into `_FLOWER_BLOOMS` in `gen_objects.py`. Refuses a drawing that has any raw-colour cell in it — see below. | **Also hand this to the developer**, whenever the drawing is (or should stay) a letter-grid flower, so the engine's own source of truth matches what shipped. |
-| **Copy palette literal** | The drawing's five tones as a `_FLOWER_PALS` line, on the clipboard. Refuses a drawing with no species. | **The other half of the grid literal** — a letter grid means nothing to the engine without its palette line. |
+## Sending a drawing back (for the artist)
 
-## Handing a NEW flower to the developer
+Two easy ways, pick either:
 
-The round trip for a species the game has never seen:
+- **The lossless one (best):** send the drawing's `.json` file from the
+  `library\` folder next to the app — it is the drawing itself, nothing lost.
+- **The visual one:** `⋮ → Export PNG…` and send that.
 
-1. `+ NEW DRAWING`, then `⋮ → Species…` to give it its engine id (lowercase,
-   e.g. `gonca`), and `⋮ → Rows…` if it needs more or fewer than 16 rows.
-2. Right-click the palette slots to set the new flower's own dark / mid /
-   light / centre / rim tones. Stay in palette letters while you draw.
-3. Check the 1x and squint previews — that is exactly how the garden will
-   draw it.
-4. Hand back three things from the `⋮` menu: **Export engine sprite…** (the
-   PNGs), **Copy grid literal** (the `_FLOWER_BLOOMS` entry), and **Copy
-   palette literal** (the `_FLOWER_PALS` line). The developer pastes the two
-   literals into `gen_objects.py` and drops the PNGs into `assets/objects/` —
-   at that point the game can regenerate the identical sprite from source.
+If the drawing is a 16-wide flower with its species set, `⋮ → Export engine
+sprite…` also works and produces the exact files the game loads. Everything
+else — palettes, letter grids, engine source entries — is the developer's
+problem, on purpose: **you draw with real colours, one click one square, and
+send it; the developer converts it for the engine behind the scenes.**
 
-## The one rule to know before you draw
+## Developer notes: letters and palettes (not the artist's job)
 
-**Engine sprites are always 16 cells wide.** That's a hard requirement of
-`Export engine sprite…`, checked before anything is written.
+The engine stores each flower as a letter grid (`_FLOWER_BLOOMS`) plus five
+tones (`_FLOWER_PALS`). The 24 imported flowers arrive in that form and
+render with the engine's automatic rims — which is also why they must keep
+looking exactly as shipped. Anything the artist paints is a raw colour on
+top; raw cells render as-is, with no rim magic (the rose already ships
+exactly this way, byte-identically).
 
-**A drawing stays "bakeable" back into the game's source only as long as
-every cell is a palette letter.** The nine tool-pane slots paint letters; the
-`PICK COLOUR…` picker paints a raw RGBA colour instead. The moment one cell
-holds a raw colour, the drawing becomes a **pixel** drawing, and
-**Copy grid literal** refuses it outright — there is no letter left to write
-down for that cell. `Export PNG`, `Export JPG`, and `Export engine sprite`
-don't care either way and keep working on a pixel drawing exactly as they do
-on a letter one — that is, in fact, exactly how the rose (`gul`) already
-ships: it was never a letter grid to begin with, only composited raw pixels,
-and it still exports byte-identically. So: stay in letters for as long as you
-want the option to hand back a grid literal too; reach for the free colour
-picker only once you've accepted this drawing will ship as a PNG/sprite and
-nothing else.
+Converting a finished raw drawing into engine source, when wanted, happens
+in code, not in the artist's window: `engine_io.export_grid_literal()` and
+`engine_io.export_palette_literal()` produce the two paste-ready lines for a
+letter drawing, and `store.load()` gives you the raw cells to map onto
+letters first. Engine sprites are always 16 cells wide — `Export engine
+sprite…` checks that before writing anything.
 
 ## Tests
 
-80 tests, all passing:
+81 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

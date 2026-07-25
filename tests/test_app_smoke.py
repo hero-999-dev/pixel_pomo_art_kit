@@ -94,6 +94,20 @@ class AppSmokeTest(unittest.TestCase):
         self.assertIsInstance(self.ui.canvas, tk.Canvas)
         self.assertIsInstance(self.ui.preview_1x, tk.Canvas)
         self.assertIsInstance(self.ui.preview_squint, tk.Canvas)
+        # The embedded colour panel replaced both the palette-letter slots and
+        # the popup picker — it must exist, and they must not.
+        self.assertIsInstance(self.ui._hue_strip, tk.Canvas)
+        self.assertIsInstance(self.ui._sv_square, tk.Canvas)
+        self.assertFalse(hasattr(self.ui, "_slot_buttons"))
+        self.assertFalse(hasattr(self.ui, "_mirror_button"))
+
+    def test_the_shade_square_click_sets_a_real_colour_ink(self):
+        class FakeEvent:
+            x, y = app.PICKER_W // 2, app.SV_H // 4
+        self.ui._on_sv(FakeEvent)
+        self.assertIsInstance(self.ui.ink, tuple)
+        self.assertEqual(len(self.ui.ink), 4)
+        self.assertEqual(self.ui.ink[3], 255)
 
     def test_the_export_dialog_does_not_default_into_the_game_assets(self):
         # pixel_pomo is read-only to this app; defaulting the picker there risks
@@ -130,20 +144,10 @@ class AppSmokeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.ui.set_tool("lasso")
 
-    def test_mirror_paints_both_halves_and_composes_with_erase(self):
-        self.ui._new_drawing()  # blank 16 wide
-        self.ui.set_tool("draw")
-        self.ui.set_ink("m")
-        self.ui.toggle_mirror()
-        self.ui.on_canvas_press(2, 1)
-        self.ui.on_canvas_release()
+    def test_a_new_drawing_is_the_big_grid_for_trees_and_pets(self):
+        self.ui._new_drawing()
         d = self.ui.history.current
-        self.assertEqual((d.get(2, 1), d.get(13, 1)), ("m", "m"))
-        self.ui.set_tool("erase")
-        self.ui.on_canvas_press(13, 1)
-        self.ui.on_canvas_release()
-        self.assertEqual((d.get(2, 1), d.get(13, 1)), (None, None))
-        self.ui.toggle_mirror()  # leave it off for the other tests
+        self.assertEqual((d.width, d.height), (app.NEW_SIZE, app.NEW_SIZE))
 
     def test_the_fill_tool_floods_from_the_pressed_cell_as_one_undo(self):
         self.ui._new_drawing()
@@ -153,7 +157,7 @@ class AppSmokeTest(unittest.TestCase):
         self.ui.on_canvas_release()
         d = self.ui.history.current
         self.assertEqual(d.get(0, 0), "G")
-        self.assertEqual(d.get(15, 15), "G")
+        self.assertEqual(d.get(d.width - 1, d.height - 1), "G")
         self.ui.undo()
         self.assertIsNone(self.ui.history.current.get(0, 0),
                           "a fill is one stroke, one undo")

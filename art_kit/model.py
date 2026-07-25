@@ -102,13 +102,17 @@ class Drawing:
             self.cells[r][c] = value
             stack.extend([(c + 1, r), (c - 1, r), (c, r + 1), (c, r - 1)])
 
-    def resize_rows(self, n):
-        """Pad with empty rows below, or crop from the bottom. Width is the
-        engine's fixed 16; height is the one dimension a flower owns."""
-        n = max(1, n)
-        while len(self.cells) < n:
-            self.cells.append([None] * self.width)
-        del self.cells[n:]
+    def resize(self, cols, rows):
+        """Pad with empty cells right/below, or crop right/below. Engine
+        flowers stay 16 wide; trees and pets to come get whatever they need."""
+        cols, rows = max(1, cols), max(1, rows)
+        for row in self.cells:
+            while len(row) < cols:
+                row.append(None)
+            del row[cols:]
+        while len(self.cells) < rows:
+            self.cells.append([None] * cols)
+        del self.cells[rows:]
 
     def is_letters(self):
         return all(c is None or isinstance(c, str)
