@@ -110,9 +110,19 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(self.ui.ink[3], 255)
 
     def test_the_export_dialog_does_not_default_into_the_game_assets(self):
-        # pixel_pomo is read-only to this app; defaulting the picker there risks
-        # clobbering a shipped sprite. The default must live outside that tree.
-        self.assertNotIn("pixel_pomo", str(app.ENGINE_SPRITE_DIR).replace("\\", "/"))
+        # The game's asset tree is read-only to this app; defaulting the picker
+        # there risks clobbering a shipped sprite. The default must live outside.
+        #
+        # Assert against the ACTUAL asset directory, resolved the same way the
+        # app resolves it. The old check looked for the literal "pixel_pomo" in
+        # the path — after the checkout moved to "Pixel Pomo\\App" that string
+        # appears nowhere, so the test passed while guarding nothing.
+        from art_kit import engine_io
+        assets = (engine_io.APP_DIR / "flutter" / "assets" / "objects").resolve()
+        default = Path(str(app.ENGINE_SPRITE_DIR)).resolve()
+        self.assertNotEqual(default, assets)
+        self.assertNotIn(assets, default.parents)
+        self.assertNotIn("flutter/assets/objects", str(default).replace("\\", "/"))
 
     def test_a_fast_drag_fills_the_line_between_sparse_motion_events(self):
         # tkinter reports motion sparsely during a quick drag; the app must

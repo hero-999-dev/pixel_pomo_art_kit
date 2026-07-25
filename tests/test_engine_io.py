@@ -5,6 +5,11 @@ from unittest import mock
 
 from art_kit import engine_io
 from art_kit.model import Drawing
+import pathlib
+
+# The game checkout is found RELATIVE to this file (both live under one
+# "Pixel Pomo" folder), so moving or renaming that folder can't break it.
+_APP = pathlib.Path(__file__).resolve().parents[2] / "App"
 
 
 class ImportBridgeTest(unittest.TestCase):
@@ -132,7 +137,7 @@ class RenderTest(unittest.TestCase):
 
 
 class ExportTest(unittest.TestCase):
-    ASSETS = Path(r"C:\Users\claude\pixel_pomo\flutter\assets\objects")
+    ASSETS = Path(str(_APP / "flutter" / "assets" / "objects"))
 
     def test_an_untouched_flower_exports_byte_for_byte_as_shipped(self):
         for species, model in (("lale", 0), ("papatya", 1), ("gul", 0)):

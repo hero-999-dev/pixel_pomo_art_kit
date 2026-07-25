@@ -1,9 +1,15 @@
 # Preview all 16 candidates on the real in-game grass tile, bottom-anchored like
 # the garden billboard renderer.
+import os
 from PIL import Image
+import pathlib
 
-OUT = r"C:\Users\claude\cactus_study"
-GRASS = r"C:\Users\claude\pixel_pomo\flutter\assets\objects\grass.png"
+# The game checkout is found RELATIVE to this file (both live under one
+# "Pixel Pomo" folder), so moving or renaming that folder can't break it.
+_APP = pathlib.Path(__file__).resolve().parents[3] / "App"
+
+OUT = os.path.dirname(os.path.abspath(__file__))  # outputs sit beside the script
+GRASS = str(_APP / "flutter" / "assets" / "objects" / "grass.png")
 
 names = [f"{m}_{k}_{i}" for m in ("m1", "m2") for k in ("flower", "plain") for i in range(4)]
 tile = Image.open(GRASS).convert("RGB").resize((128, 128), Image.NEAREST)

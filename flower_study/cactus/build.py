@@ -4,13 +4,20 @@
 # Output: m{1,2}_{flower,plain}_{0..3}.png (x16), ascii_*.txt, contact_sheet.png
 import os
 import sys
+import pathlib
 
-sys.path.insert(0, r"C:\Users\claude\pixel_pomo\flutter\tools")
+# The game checkout is found RELATIVE to this file (both live under one
+# "Pixel Pomo" folder), so moving or renaming that folder can't break it.
+_APP = pathlib.Path(__file__).resolve().parents[3] / "App"
+
+
+sys.path.insert(0, str(_APP / "flutter" / "tools"))
 from gen_objects import blank, hexrgb, upscale, write_png, outline, _rose_compose  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
-G = r"C:\Users\claude\pixel_pomo\feedback & guides\Guides\Sprite Guides\Cactus"
-OUT = r"C:\Users\claude\cactus_study"
+
+G = str(_APP / "feedback & guides" / "Guides" / "Sprite Guides" / "Cactus")
+OUT = os.path.dirname(os.path.abspath(__file__))  # outputs sit beside the script
 SHEET_FLOWER = f"{G}\\035b4d32-7cbd-4027-bb3b-ff86f18a6f22.png"   # all 4 flowered (art + blueprint)
 SHEET_PLAIN = f"{G}\\658210e0-299a-47ed-aedc-f3f636235640.png"    # all 4 plain (art + blueprint)
 

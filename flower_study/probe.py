@@ -1,8 +1,13 @@
 # One-off: overlay a labeled 50px grid on each per-shape sheet's bottom-left
 # quadrant so the blueprint box can be read off and hardcoded (bpfix style).
 from PIL import Image, ImageDraw
+import pathlib
 
-G = r'C:\Users\claude\pixel_pomo\feedback & guides\Guides\Sprite Guides\Daisy'
+# The game checkout is found RELATIVE to this file (both live under one
+# "Pixel Pomo" folder), so moving or renaming that folder can't break it.
+_APP = pathlib.Path(__file__).resolve().parents[2] / "App"
+
+G = str(_APP / "feedback & guides" / "Guides" / "Sprite Guides" / "Daisy")
 sheets = {
     'd01': rf'{G}\c9934cca-d7eb-4d7f-957c-85d7758b8a3c.png',
     'd02': rf'{G}\f473d1c8-de44-44f9-beb8-211054d1b78c.png',

@@ -1,8 +1,13 @@
 # ponytail: histogram-based tan-rectangle finder — the art panels are the only
 # large sand-colored rectangles on the near-black sheets.
 from PIL import Image
+import pathlib
 
-GUIDES = r"C:\Users\claude\pixel_pomo\feedback & guides\Guides\Sprite Guides\Cactus"
+# The game checkout is found RELATIVE to this file (both live under one
+# "Pixel Pomo" folder), so moving or renaming that folder can't break it.
+_APP = pathlib.Path(__file__).resolve().parents[3] / "App"
+
+GUIDES = str(_APP / "feedback & guides" / "Guides" / "Sprite Guides" / "Cactus")
 SHEETS = {
     "flower": "b222f4da-80d1-4ed3-a0e4-ea105220737d.png",   # big renders WITH flower
     "plain":  "658210e0-299a-47ed-aedc-f3f636235640.png",   # renders NO flower

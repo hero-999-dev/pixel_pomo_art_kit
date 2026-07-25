@@ -30,9 +30,11 @@ Requirements:
   Plain PNG and engine-sprite export don't need it: the generator writes PNG
   bytes itself, standard library only.
 - A checkout of the Pixel Pomo game containing `flutter/tools/gen_objects.py`.
-  The default location is `C:\Users\claude\pixel_pomo\flutter\tools`; point
-  the `PIXEL_POMO_TOOLS` environment variable at a different `tools` folder
-  to use another checkout.
+  It is found **relative to this folder** — the game is expected at `..\App`,
+  i.e. both checkouts sitting side by side under one `Pixel Pomo` folder — so
+  moving or renaming that folder does not break it. Point the
+  `PIXEL_POMO_TOOLS` environment variable at a `tools` folder to override that
+  for a layout that isn't this one.
 
 On first run the app creates a `library/` folder next to `art_kit/` and seeds
 it with the 24 flowers the game already ships (12 species, 2 hand-authored

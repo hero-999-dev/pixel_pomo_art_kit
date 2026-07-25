@@ -6,14 +6,21 @@
 # contact_sheet.png, gardenstrip.png, calib_*.png (crop sanity checks).
 import os
 import sys
+import pathlib
 
-sys.path.insert(0, r"C:\Users\claude\pixel_pomo\flutter\tools")
+# The game checkout is found RELATIVE to this file (both live under one
+# "Pixel Pomo" folder), so moving or renaming that folder can't break it.
+_APP = pathlib.Path(__file__).resolve().parents[2] / "App"
+
+
+sys.path.insert(0, str(_APP / "flutter" / "tools"))
 from gen_objects import blank, hexrgb, upscale, write_png, outline, _rose_compose  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
-GUIDES = r"C:\Users\claude\pixel_pomo\feedback & guides\Guides\Sprite Guides"
-OUT = os.path.dirname(os.path.abspath(__file__))  # this dir — moved under "drawing kit" 2026-07-24
-GRASS = r"C:\Users\claude\pixel_pomo\flutter\assets\objects\grass.png"
+
+GUIDES = str(_APP / "feedback & guides" / "Guides" / "Sprite Guides")
+OUT = os.path.dirname(os.path.abspath(__file__))  # this dir - outputs sit beside the script
+GRASS = str(_APP / "flutter" / "assets" / "objects" / "grass.png")
 GRN_OL = '1E5A24'
 
 # app-family palettes (= gen_objects._FLOWER_PALS so candidates preview exactly

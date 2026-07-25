@@ -1,8 +1,14 @@
 # ponytail: hand-calibrated crop boxes, verified by eyeball on saved previews.
+import os
 from PIL import Image
+import pathlib
 
-G = r"C:\Users\claude\pixel_pomo\feedback & guides\Guides\Sprite Guides\Cactus"
-OUT = r"C:\Users\claude\cactus_study"
+# The game checkout is found RELATIVE to this file (both live under one
+# "Pixel Pomo" folder), so moving or renaming that folder can't break it.
+_APP = pathlib.Path(__file__).resolve().parents[3] / "App"
+
+G = str(_APP / "feedback & guides" / "Guides" / "Sprite Guides" / "Cactus")
+OUT = os.path.dirname(os.path.abspath(__file__))  # outputs sit beside the script
 
 JOBS = {
     # Method A sources: rendered pixel art panels (4 shapes each)

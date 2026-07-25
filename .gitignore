@@ -2,7 +2,10 @@ __pycache__/
 *.pyc
 build/
 dist/
+dist2/
+# PixelPomoArtKit.spec is the build recipe, not PyInstaller spew - keep it
 *.spec
+!PixelPomoArtKit.spec
 .superpowers/
 # Runtime-created at the repo root by `python -m art_kit`
 library/

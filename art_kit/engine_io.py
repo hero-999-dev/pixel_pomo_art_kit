@@ -13,9 +13,13 @@ from pathlib import Path
 
 from art_kit.model import Drawing, Palette, BLOOM_LETTERS, PLANT_LETTERS
 
-# Overridable so a checkout somewhere else can still run the app.
+# Both checkouts live side by side under one "Pixel Pomo" folder, so the game
+# is found RELATIVE to this file (art_kit/ -> ArtKit/ -> Pixel Pomo/ -> App/).
+# That survives the whole folder being moved or renamed, which the old absolute
+# default did not. PIXEL_POMO_TOOLS still wins, for a layout that isn't this one.
+APP_DIR = Path(__file__).resolve().parents[2] / "App"
 GEN_OBJECTS_DIR = Path(
-    os.environ.get("PIXEL_POMO_TOOLS", r"C:\Users\claude\pixel_pomo\flutter\tools")
+    os.environ.get("PIXEL_POMO_TOOLS", str(APP_DIR / "flutter" / "tools"))
 )
 
 
@@ -30,7 +34,7 @@ def gen_objects():
     if not path.exists():
         raise FileNotFoundError(
             f"gen_objects.py not found at {path}. Point the PIXEL_POMO_TOOLS "
-            f"environment variable at pixel_pomo\\flutter\\tools."
+            f"environment variable at the game's flutter\\tools folder."
         )
     spec = importlib.util.spec_from_file_location("gen_objects", path)
     module = importlib.util.module_from_spec(spec)
