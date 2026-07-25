@@ -149,6 +149,22 @@ class LibraryTest(unittest.TestCase):
         self.lib.save(a)  # must not raise KeyError
         self.assertEqual(len(list(Path(self.tmp.name).glob("*.json"))), 1)
 
+    def test_first_save_of_a_session_leaves_a_bak_of_what_the_session_started_with(self):
+        d = self.lib.add(Drawing.blank(16, 4, PAL, name="art", species="lale"))
+        # A later session opens the library and edits.
+        again = store.Library(Path(self.tmp.name))
+        again.load_all()
+        loaded = again.drawings[0]
+        original = store.to_dict(loaded)
+        loaded.paint(0, 0, "m")
+        again.save(loaded)
+        loaded.paint(1, 0, "m")
+        again.save(loaded)  # second save must not clobber the backup
+        baks = list(Path(self.tmp.name).glob("*.json.bak"))
+        self.assertEqual(len(baks), 1)
+        self.assertEqual(json.loads(baks[0].read_text(encoding="utf-8")), original,
+                         "the .bak is the session's starting point, not a later state")
+
     def test_a_corrupt_file_is_skipped_not_fatal(self):
         self.lib.seed_from_engine()
         (Path(self.tmp.name) / "broken.json").write_text("{ not json", encoding="utf-8")

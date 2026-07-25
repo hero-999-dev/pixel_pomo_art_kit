@@ -175,6 +175,18 @@ def export_engine_sprite(drawing, out_dir):
     return written
 
 
+def export_palette_literal(drawing):
+    """The palette as a `_FLOWER_PALS` line, ready to paste.
+
+    The grid literal alone is half a flower — the engine defines one as rows
+    PLUS the five tones. This is the other half of the hand-back."""
+    if not drawing.species:
+        raise ExportRefused("give the drawing a species before exporting it")
+    p = drawing.palette
+    return (f"    '{drawing.species}': "
+            f"('{p.d}', '{p.m}', '{p.l}', '{p.centre}', '{p.rim}'),")
+
+
 def export_grid_literal(drawing):
     """The rows as Python source, ready to paste into _FLOWER_BLOOMS."""
     if not drawing.is_letters():

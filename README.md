@@ -38,7 +38,10 @@ On first run the app creates a `library/` folder next to `art_kit/` and seeds
 it with the 24 flowers the game already ships (12 species, 2 hand-authored
 models each), read live from `gen_objects.py` — not copied in. Every drawing
 is one JSON file in `library/`: plain, readable text, safe to open, diff, or
-hand-edit if the app ever writes something wrong.
+hand-edit if the app ever writes something wrong. The first time a session
+touches a drawing, the file it started from is kept as `<name>.json.bak` —
+undo history dies with the window, but "how it looked when I opened the app
+today" survives next to it.
 
 ## The window
 
@@ -47,9 +50,12 @@ Three panes, left to right:
 - **Library.** A scrollable list, one row per drawing: a small thumbnail
   (rendered the same way the canvas is), the drawing's name, and a `⋮` menu —
   Duplicate, Export PNG…, Export JPG…, Export engine sprite…, Copy grid
-  literal, Rename…, Delete. Clicking a row opens it in the canvas.
-  `+ NEW DRAWING` at the bottom starts a blank 16x16 drawing, carrying over
-  the species and palette of whatever is currently selected.
+  literal, Copy palette literal, Rename…, Species…, Rows…, Delete. Clicking a
+  row opens it in the canvas. `+ NEW DRAWING` at the bottom starts a blank
+  16-wide drawing, carrying over the species and palette of whatever is
+  currently selected; `Rows…` grows or crops it (width is the engine's fixed
+  16), and `Species…` names a brand-new flower so it can export as an engine
+  sprite.
 - **Canvas.** Click or drag to paint with the current tool and ink colour —
   fast drags are interpolated, so a quick stroke is a continuous line, not a
   trail of dots. **Right-click is an eyedropper**: the cell under the cursor
@@ -61,16 +67,21 @@ Three panes, left to right:
   engine code as every export: one at 1x actual size, and one at a fixed
   "squint test" scale — the same distance check the project already requires
   before a sprite is accepted, so you don't have to eyeball it yourself.
-- **Tools.** DRAW / ERASE, UNDO / REDO, an **ink swatch** showing exactly
-  what the next click will paint, the nine palette-letter slots (dark, mid,
-  light, centre, bloom seam, stem, leaf, vein, plant seam — coloured from
-  the open drawing's own palette, the active one held down), a row of ten
-  ready-made colours drawn from Pixel Pomo's own theme palette, and a
-  `PICK COLOUR…` button for anything outside the palette.
+- **Tools.** DRAW / ERASE / FILL (flood fill from the pressed cell, one undo
+  step), a **MIRROR X** toggle that paints both halves at once — flowers are
+  mostly symmetric, so half the clicks — UNDO / REDO, an **ink swatch**
+  showing exactly what the next click will paint, the nine palette-letter
+  slots (dark, mid, light, centre, bloom seam, stem, leaf, vein, plant seam —
+  coloured from the open drawing's own palette, the active one held down;
+  **right-click a slot to change that colour** for the whole drawing, which
+  is how a new species gets its own tones), a row of ten ready-made colours
+  from Pixel Pomo's own theme palette, and a `PICK COLOUR…` button for
+  anything outside the palette.
 
-Keyboard: `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo, `e` / `b`
-erase/draw, `+` / `-` zoom. Right-click picks up the colour under the
-cursor. The title bar always names the drawing you are editing.
+Keyboard: `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo, `e` / `b` / `f`
+erase/draw/fill, `x` mirror, `+` / `-` zoom. Right-click on the canvas picks
+up the colour under the cursor. The title bar always names the drawing you
+are editing.
 
 ## Exports, and which one to hand back to the developer
 
@@ -80,6 +91,23 @@ cursor. The title bar always names the drawing you are editing.
 | **Export JPG…** | The same render flattened onto white (JPEG has no alpha channel, so transparency has to become some solid colour — the underlying `export_jpg` takes the background as an explicit argument, the window just always calls it with the white default today). | Quick previews outside the game; never for shipping, since the transparency is gone. |
 | **Export engine sprite…** | The actual file(s) the game loads: `flower_<species>_<model>.png` at the engine's real x16 scale, through the same upscale/write code the shipped assets were made with. Exporting a drawing's model 0 also writes `flower_<species>.png`, the shop thumbnail. Refuses a drawing that isn't exactly 16 cells wide, or has no species set. The save dialog opens on a repo-local `exports/` folder — never the game's asset tree, which is read-only to this app — behind a confirmation that names exactly what it will overwrite. | **Hand this back to the developer.** Drop the output into the game's `assets/objects/` and the artwork ships. |
 | **Copy grid literal** | The drawing's rows as Python source text, on the clipboard, ready to paste into `_FLOWER_BLOOMS` in `gen_objects.py`. Refuses a drawing that has any raw-colour cell in it — see below. | **Also hand this to the developer**, whenever the drawing is (or should stay) a letter-grid flower, so the engine's own source of truth matches what shipped. |
+| **Copy palette literal** | The drawing's five tones as a `_FLOWER_PALS` line, on the clipboard. Refuses a drawing with no species. | **The other half of the grid literal** — a letter grid means nothing to the engine without its palette line. |
+
+## Handing a NEW flower to the developer
+
+The round trip for a species the game has never seen:
+
+1. `+ NEW DRAWING`, then `⋮ → Species…` to give it its engine id (lowercase,
+   e.g. `gonca`), and `⋮ → Rows…` if it needs more or fewer than 16 rows.
+2. Right-click the palette slots to set the new flower's own dark / mid /
+   light / centre / rim tones. Stay in palette letters while you draw.
+3. Check the 1x and squint previews — that is exactly how the garden will
+   draw it.
+4. Hand back three things from the `⋮` menu: **Export engine sprite…** (the
+   PNGs), **Copy grid literal** (the `_FLOWER_BLOOMS` entry), and **Copy
+   palette literal** (the `_FLOWER_PALS` line). The developer pastes the two
+   literals into `gen_objects.py` and drops the PNGs into `assets/objects/` —
+   at that point the game can regenerate the identical sprite from source.
 
 ## The one rule to know before you draw
 
@@ -102,7 +130,7 @@ nothing else.
 
 ## Tests
 
-72 tests, all passing:
+80 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

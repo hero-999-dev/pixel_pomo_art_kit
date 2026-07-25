@@ -199,6 +199,15 @@ class ExportTest(unittest.TestCase):
         with self.assertRaises(engine_io.ExportRefused):
             engine_io.export_grid_literal(engine_io.import_flower("gul", 0))
 
+    def test_palette_literal_is_the_engines_own_pals_line(self):
+        g = engine_io.gen_objects()
+        d, m, l, centre, rim = g._FLOWER_PALS["lale"]
+        line = engine_io.export_palette_literal(engine_io.import_flower("lale", 0))
+        self.assertEqual(line, f"    'lale': ('{d}', '{m}', '{l}', '{centre}', '{rim}'),")
+        with self.assertRaises(engine_io.ExportRefused):
+            engine_io.export_palette_literal(Drawing.blank(16, 4,
+                engine_io.import_flower("lale", 0).palette))
+
     def test_the_confirm_names_are_exactly_the_files_export_writes(self):
         # engine_sprite_names feeds the overwrite-confirmation dialog; if it ever
         # named different files than export_engine_sprite writes, the dialog would

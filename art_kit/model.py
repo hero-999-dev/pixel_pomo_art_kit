@@ -87,6 +87,29 @@ class Drawing:
     def erase(self, col, row):
         self.paint(col, row, None)
 
+    def flood(self, col, row, value):
+        """Fill the connected region of cells equal to the start cell."""
+        if not self._inside(col, row):
+            return
+        target = self.cells[row][col]
+        if target == value:
+            return
+        stack = [(col, row)]
+        while stack:
+            c, r = stack.pop()
+            if not self._inside(c, r) or self.cells[r][c] != target:
+                continue
+            self.cells[r][c] = value
+            stack.extend([(c + 1, r), (c - 1, r), (c, r + 1), (c, r - 1)])
+
+    def resize_rows(self, n):
+        """Pad with empty rows below, or crop from the bottom. Width is the
+        engine's fixed 16; height is the one dimension a flower owns."""
+        n = max(1, n)
+        while len(self.cells) < n:
+            self.cells.append([None] * self.width)
+        del self.cells[n:]
+
     def is_letters(self):
         return all(c is None or isinstance(c, str)
                    for row in self.cells for c in row)
@@ -135,6 +158,15 @@ class History:
 
     def can_redo(self):
         return bool(self._redo)
+
+    def repaint(self, palette):
+        """A palette edit is not a stroke: apply it to the live drawing AND
+        every snapshot, so an undo never silently reverts the colours."""
+        self.current.palette = palette
+        for snap in self._undo + self._redo:
+            snap.palette = palette
+        if self._pending is not None:
+            self._pending.palette = palette
 
     def undo(self):
         if not self._undo:

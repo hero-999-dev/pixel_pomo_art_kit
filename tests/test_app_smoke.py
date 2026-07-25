@@ -128,7 +128,35 @@ class AppSmokeTest(unittest.TestCase):
 
     def test_set_tool_rejects_an_unknown_tool(self):
         with self.assertRaises(ValueError):
-            self.ui.set_tool("fill")
+            self.ui.set_tool("lasso")
+
+    def test_mirror_paints_both_halves_and_composes_with_erase(self):
+        self.ui._new_drawing()  # blank 16 wide
+        self.ui.set_tool("draw")
+        self.ui.set_ink("m")
+        self.ui.toggle_mirror()
+        self.ui.on_canvas_press(2, 1)
+        self.ui.on_canvas_release()
+        d = self.ui.history.current
+        self.assertEqual((d.get(2, 1), d.get(13, 1)), ("m", "m"))
+        self.ui.set_tool("erase")
+        self.ui.on_canvas_press(13, 1)
+        self.ui.on_canvas_release()
+        self.assertEqual((d.get(2, 1), d.get(13, 1)), (None, None))
+        self.ui.toggle_mirror()  # leave it off for the other tests
+
+    def test_the_fill_tool_floods_from_the_pressed_cell_as_one_undo(self):
+        self.ui._new_drawing()
+        self.ui.set_tool("fill")
+        self.ui.set_ink("G")
+        self.ui.on_canvas_press(5, 5)
+        self.ui.on_canvas_release()
+        d = self.ui.history.current
+        self.assertEqual(d.get(0, 0), "G")
+        self.assertEqual(d.get(15, 15), "G")
+        self.ui.undo()
+        self.assertIsNone(self.ui.history.current.get(0, 0),
+                          "a fill is one stroke, one undo")
 
     def test_the_saved_file_tracks_an_undo_not_just_memory(self):
         # History.undo() swaps .current to a different object; the app reconciles

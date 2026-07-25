@@ -7,6 +7,7 @@ binary blob or a database.
 import json
 import os
 import re
+import shutil
 from dataclasses import asdict
 from pathlib import Path
 
@@ -126,6 +127,7 @@ class Library:
         self.root.mkdir(parents=True, exist_ok=True)
         self.drawings = []
         self._paths = {}
+        self._backed_up = set()  # paths already .bak'd this session
 
     def load_all(self):
         """Returns the files it could NOT read, so the app can say so."""
@@ -153,11 +155,20 @@ class Library:
         path = self._free_path(drawing)
         self._paths[id(drawing)] = path
         self.drawings.append(drawing)
+        self._backed_up.add(path)  # fresh file; nothing worth backing up
         save(drawing, path)
         return drawing
 
     def save(self, drawing):
-        save(drawing, self._paths[id(drawing)])
+        path = self._paths[id(drawing)]
+        if path not in self._backed_up:
+            # First save of this session over an existing file: keep what the
+            # artist STARTED the session with. Undo history dies with the app;
+            # this is the one rescue left after "ruined it, then closed it".
+            self._backed_up.add(path)
+            if path.exists():
+                shutil.copy2(path, path.with_name(path.name + ".bak"))
+        save(drawing, path)
 
     def remove(self, drawing):
         path = self._paths.pop(id(drawing), None)

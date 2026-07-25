@@ -4,6 +4,49 @@ What was built, round by round. Newest first.
 
 ---
 
+## v3 — the new-species round trip (2026-07-25)
+
+**Date:** 2026-07-25
+
+**Prompt (Turkish):** "hepsini yap" — after v2, the model was asked what it
+would suggest; it proposed five things and was told to do all of them. Also
+confirmed in the same message: yes, this is a pixel-filling drawing app —
+click a grid cell, it fills with the chosen colour/letter, exactly the
+engine's coordinate + palette format.
+
+**Changes:**
+
+- **The new-species package** — before this, a flower the game had never
+  seen could not actually be finished here: no way to set its species, no
+  way to change its palette, no way to hand the developer its palette line.
+  Now: `⋮ → Species…` names a drawing (validated to the engine's lowercase
+  id form, since it becomes the sprite filename); right-clicking a palette
+  slot recolours that entry for the whole drawing (`History.repaint()` puts
+  the new palette on every undo snapshot, so undo restores cells but never
+  silently reverts colours); `⋮ → Copy palette literal` produces the
+  `_FLOWER_PALS` source line to pair with the grid literal; and
+  `⋮ → Rows…` grows/crops the grid below (width stays the engine's 16), as
+  a single undoable stroke.
+- **FILL tool** — flood fill from the pressed cell, one undo step. `f` key.
+- **MIRROR X toggle** — paints/erases/fills both halves at once; flowers
+  are mostly symmetric, so half the clicks. `x` key. A switch, not a
+  fourth tool, because it composes with all three.
+- **Session backups** — the first time a session saves over an existing
+  file, the file's previous content is kept as `<name>.json.bak`. Undo
+  history dies with the window; "how it looked when I opened the app
+  today" now survives.
+- **README: "Handing a NEW flower to the developer"** — the four-step
+  round trip (species, palette, draw in letters, hand back sprite + grid
+  literal + palette literal).
+
+**Deliberately not done:** CI (the suite imports the game's `gen_objects.py`
+live from a sibling checkout that no runner has) and exe code-signing (a
+certificate costs real money to silence a warning one person sees once).
+
+**Tests:** 80, all passing — eight new across all four test files.
+
+---
+
 ## v2 — upgrade pass by a stronger model (2026-07-25)
 
 **Date:** 2026-07-25
@@ -52,9 +95,9 @@ bridge, and store came through the re-read clean:
   wrote instead of finishing silently; the title bar names the drawing being
   edited.
 
-**Tests:** 72, all passing — three new: the Bresenham line is filled exactly,
-right-click eyedropping picks letters and ignores empties, unknown tools are
-refused.
+**Tests:** 72 at this version — three new: the Bresenham line is filled
+exactly, right-click eyedropping picks letters and ignores empties, unknown
+tools are refused.
 
 ---
 

@@ -50,6 +50,31 @@ class DrawingTest(unittest.TestCase):
         d.paint(-1, 0, "m")
         self.assertTrue(d.is_letters())
 
+    def test_flood_fills_the_connected_region_only(self):
+        d = Drawing.blank(6, 3, PAL)
+        for r in range(3):
+            d.paint(3, r, "k")  # a wall down column 3
+        d.flood(0, 0, "m")
+        self.assertEqual(d.get(2, 2), "m", "left of the wall fills")
+        self.assertEqual(d.get(3, 1), "k", "the wall itself is untouched")
+        self.assertIsNone(d.get(4, 0), "right of the wall is another region")
+
+    def test_flood_on_the_same_value_is_a_no_op(self):
+        d = Drawing.blank(4, 3, PAL)
+        d.flood(0, 0, None)  # would recurse forever if not guarded
+        self.assertIsNone(d.get(0, 0))
+
+    def test_resize_rows_pads_below_and_crops_below(self):
+        d = Drawing.blank(4, 3, PAL)
+        d.paint(1, 1, "m")
+        d.resize_rows(5)
+        self.assertEqual(d.height, 5)
+        self.assertIsNone(d.get(1, 4))
+        self.assertEqual(d.get(1, 1), "m", "existing cells survive a pad")
+        d.resize_rows(2)
+        self.assertEqual(d.height, 2)
+        self.assertEqual(d.get(1, 1), "m", "cropping stops above the art")
+
     def test_copy_does_not_share_rows(self):
         d = Drawing.blank(4, 3, PAL)
         clone = d.copy()
@@ -103,6 +128,14 @@ class HistoryTest(unittest.TestCase):
         self.h.begin_stroke()
         self.h.end_stroke()
         self.assertFalse(self.h.can_undo())
+
+    def test_repaint_survives_an_undo(self):
+        self._stroke((0, 0, "d"))
+        pal2 = Palette(d="111111", m="222222", l="333333", centre="444444", rim="555555")
+        self.h.repaint(pal2)
+        self.h.undo()
+        self.assertIs(self.h.current.palette, pal2,
+                      "undo restores cells, never an old palette")
 
     def test_the_undo_stack_stops_at_its_limit(self):
         h = History(Drawing.blank(5, 3, PAL), limit=3)

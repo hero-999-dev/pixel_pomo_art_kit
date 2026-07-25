@@ -109,11 +109,22 @@ rebuild the Pixel Pomo Art Kit from nothing.
 >   the exact same code as every export — one at actual size, one at a fixed
 >   "squint test" scale so the artist can sanity-check readability without
 >   eyeballing a zoom level themselves.
-> - A **tools** pane on the right: a draw/erase toggle, undo/redo, a swatch
->   that always shows what the next click will paint, one button per palette
->   letter coloured from the open drawing's own palette (the active letter
->   visibly pressed), a row of app-wide ready-made colours, and a free colour
->   picker for anything else.
+> - A **tools** pane on the right: draw / erase / flood-fill tools plus a
+>   mirror-X toggle that composes with all three (flowers are symmetric —
+>   half the clicks), undo/redo, a swatch that always shows what the next
+>   click will paint, one button per palette letter coloured from the open
+>   drawing's own palette (the active letter visibly pressed; right-clicking
+>   a slot recolours that palette entry for the whole drawing — palette edits
+>   apply to every undo snapshot rather than being undoable strokes), a row
+>   of app-wide ready-made colours, and a free colour picker for anything
+>   else.
+> - Library rows also offer: naming a drawing's species (validated to the
+>   engine's lowercase id form — this is what unlocks engine export for a
+>   brand-new flower), changing its row count (width is the engine's fixed
+>   16; a resize is one undoable stroke), and copying the palette as a
+>   `_FLOWER_PALS` source line to pair with the grid literal.
+> - The library keeps a `.bak` of each file as it was when the session first
+>   touched it — the rescue that survives closing the window.
 > - Split the pointer handling in two layers: methods that take grid
 >   coordinates and carry all of the actual behaviour (paint, erase, begin/end
 >   a stroke) versus the toolkit's own event bindings, which do nothing but
@@ -141,4 +152,4 @@ rebuild the Pixel Pomo Art Kit from nothing.
 
 ---
 
-72 tests passing at this version (`python -m unittest discover -s tests -v`).
+80 tests passing at this version (`python -m unittest discover -s tests -v`).

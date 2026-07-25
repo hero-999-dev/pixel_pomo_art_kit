@@ -15,13 +15,19 @@ raise KeyError. `_selected` is kept as the stable, library-registered object;
 so the library and the on-disk file always describe the same drawing the
 library thinks it is holding.
 """
+import re
 import sys
 import tkinter as tk
+from dataclasses import replace
 from tkinter import colorchooser, filedialog, messagebox, simpledialog
 from pathlib import Path
 
 from art_kit import engine_io
 from art_kit.model import Drawing, History, LETTERS, Palette, hex_to_rgba
+
+# Palette slot letter -> Palette field, for the right-click colour editor.
+PALETTE_FIELD = {"d": "d", "m": "m", "l": "l", "C": "centre", "x": "rim",
+                 "S": "stem", "G": "leaf", "k": "vein", "o": "plant_rim"}
 
 MIN_ZOOM, MAX_ZOOM = 4, 48
 DEFAULT_ZOOM = 20
@@ -90,6 +96,7 @@ class ArtKitApp:
         self.library = library
         self.tool = "draw"
         self.ink = "m"
+        self.mirror = False
         self.zoom_level = DEFAULT_ZOOM
         self._histories = {}
         self._painting = False
@@ -112,9 +119,15 @@ class ArtKitApp:
         self._redraw()
 
     def set_tool(self, name):
-        if name not in ("draw", "erase"):
-            raise ValueError(f"tool must be 'draw' or 'erase', got {name!r}")
+        if name not in ("draw", "erase", "fill"):
+            raise ValueError(f"tool must be 'draw', 'erase' or 'fill', got {name!r}")
         self.tool = name
+        self._refresh_tool_buttons()
+
+    def toggle_mirror(self):
+        # Not a tool: mirroring composes with draw, erase AND fill, so it is a
+        # switch beside them rather than a fourth mode.
+        self.mirror = not self.mirror
         self._refresh_tool_buttons()
 
     def set_ink(self, value):
@@ -188,10 +201,16 @@ class ArtKitApp:
 
     def _apply(self, col, row):
         drawing = self.history.current
-        if self.tool == "erase":
-            drawing.erase(col, row)
-        else:
-            drawing.paint(col, row, self.ink)
+        targets = [(col, row)]
+        if self.mirror:
+            targets.append((drawing.width - 1 - col, row))
+        for c, r in targets:
+            if self.tool == "erase":
+                drawing.erase(c, r)
+            elif self.tool == "fill":
+                drawing.flood(c, r, self.ink)
+            else:
+                drawing.paint(c, r, self.ink)
 
     def _after_change(self):
         live = self.history.current
@@ -279,9 +298,13 @@ class ArtKitApp:
         self._tool_buttons = {
             "draw": tk.Button(tool_row, text="DRAW", command=lambda: self.set_tool("draw")),
             "erase": tk.Button(tool_row, text="ERASE", command=lambda: self.set_tool("erase")),
+            "fill": tk.Button(tool_row, text="FILL", command=lambda: self.set_tool("fill")),
         }
-        self._tool_buttons["draw"].pack(side="left", expand=True, fill="x")
-        self._tool_buttons["erase"].pack(side="left", expand=True, fill="x")
+        for btn in self._tool_buttons.values():
+            btn.pack(side="left", expand=True, fill="x")
+
+        self._mirror_button = tk.Button(frame, text="MIRROR X", command=self.toggle_mirror)
+        self._mirror_button.pack(fill="x", padx=6, pady=2)
 
         undo_row = tk.Frame(frame, bg="#1e1e1e")
         undo_row.pack(fill="x", padx=6, pady=2)
@@ -300,8 +323,12 @@ class ArtKitApp:
         for letter, label in SLOTS:
             btn = tk.Button(palette_frame, text=f"{label} ({letter})", anchor="w",
                              command=lambda letter=letter: self.set_ink(letter))
+            btn.bind("<Button-3>",
+                     lambda e, letter=letter: self._edit_palette_slot(letter))
             btn.pack(fill="x", pady=1)
             self._slot_buttons[letter] = btn
+        tk.Label(frame, text="right-click a slot to edit its colour",
+                 bg="#1e1e1e", fg="#777777").pack()
 
         tk.Label(frame, text="Ready colours", bg="#1e1e1e", fg="#cccccc").pack(pady=(10, 0))
         ready_frame = tk.Frame(frame, bg="#1e1e1e")
@@ -323,6 +350,8 @@ class ArtKitApp:
         self.root.bind("<Control-Shift-Z>", lambda e: self.redo())
         self.root.bind("<Key-e>", lambda e: self.set_tool("erase"))
         self.root.bind("<Key-b>", lambda e: self.set_tool("draw"))
+        self.root.bind("<Key-f>", lambda e: self.set_tool("fill"))
+        self.root.bind("<Key-x>", lambda e: self.toggle_mirror())
         self.root.bind("<plus>", lambda e: self.zoom(+1))
         self.root.bind("<KP_Add>", lambda e: self.zoom(+1))
         self.root.bind("<minus>", lambda e: self.zoom(-1))
@@ -381,7 +410,11 @@ class ArtKitApp:
         menu.add_command(label="Export engine sprite\u2026",
                           command=lambda: self._export_engine_sprite(drawing))
         menu.add_command(label="Copy grid literal", command=lambda: self._copy_grid_literal(drawing))
+        menu.add_command(label="Copy palette literal",
+                          command=lambda: self._copy_palette_literal(drawing))
         menu.add_command(label="Rename\u2026", command=lambda: self._rename(drawing))
+        menu.add_command(label="Species\u2026", command=lambda: self._set_species(drawing))
+        menu.add_command(label="Rows\u2026", command=lambda: self._set_rows(drawing))
         menu.add_command(label="Delete", command=lambda: self._delete(drawing))
         menu_btn.menu = menu
         menu_btn.config(menu=menu)
@@ -417,6 +450,70 @@ class ArtKitApp:
             if drawing is self._selected:
                 self.root.title(f"Pixel Pomo Art Kit — {name}")
             self._refresh_list()
+
+    def _set_species(self, drawing):
+        """Name the species — what unlocks engine export for a new flower."""
+        value = simpledialog.askstring(
+            "Pixel Pomo Art Kit",
+            "Species id (lowercase, as the engine names it, e.g. 'gonca'):",
+            initialvalue=drawing.species, parent=self.root)
+        if value is None:
+            return
+        value = value.strip()
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", value):
+            messagebox.showerror(
+                "Pixel Pomo Art Kit",
+                "A species id is lowercase letters/digits/underscores and "
+                "starts with a letter — it becomes the sprite's filename.")
+            return
+        drawing.species = value
+        self.library.save(drawing)
+        self._refresh_list()
+
+    def _set_rows(self, drawing):
+        if drawing is not self._selected:
+            self.select(drawing)
+        n = simpledialog.askinteger(
+            "Pixel Pomo Art Kit", "Rows (width stays 16):",
+            initialvalue=self.history.current.height,
+            minvalue=1, maxvalue=64, parent=self.root)
+        if not n or n == self.history.current.height:
+            return
+        # A resize is a stroke: one undo puts the cropped rows back.
+        self.history.begin_stroke()
+        self.history.current.resize_rows(n)
+        self.history.end_stroke()
+        self._after_change()
+
+    def _edit_palette_slot(self, letter):
+        if self.history is None:
+            return
+        pal = self.history.current.palette
+        current = pal.colors()[letter]
+        _rgb, hexcolor = colorchooser.askcolor(
+            parent=self.root, title=f"Colour for {dict(SLOTS)[letter]} ({letter})",
+            initialcolor=_hex(current))
+        if not hexcolor:
+            return
+        new_pal = replace(pal, **{PALETTE_FIELD[letter]: hexcolor.lstrip("#").upper()})
+        # Palette edits are deliberately not undoable strokes; repaint() keeps
+        # every history snapshot on the new palette so undo can't revert it.
+        self.history.repaint(new_pal)
+        self._selected.palette = new_pal
+        self.library.save(self._selected)
+        self._refresh_palette()
+        self._refresh_ink_ui()
+        self._refresh_list()
+        self._redraw()
+
+    def _copy_palette_literal(self, drawing):
+        try:
+            text = engine_io.export_palette_literal(drawing)
+        except engine_io.ExportRefused as exc:
+            messagebox.showerror("Pixel Pomo Art Kit", str(exc))
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
 
     def _delete(self, drawing):
         if not messagebox.askyesno(
@@ -560,6 +657,9 @@ class ArtKitApp:
     def _refresh_tool_buttons(self):
         for name, btn in self._tool_buttons.items():
             btn.configure(relief="sunken" if name == self.tool else "raised")
+        mirror_btn = getattr(self, "_mirror_button", None)
+        if mirror_btn is not None:
+            mirror_btn.configure(relief="sunken" if self.mirror else "raised")
 
     def _refresh_palette(self):
         if self.history is None:
