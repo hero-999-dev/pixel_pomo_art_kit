@@ -6,7 +6,7 @@
 python -m unittest discover -s tests -v
 ```
 
-**67 tests, all passing.** Verified 2026-07-25 on `art-kit-v1`, Python 3.14.4,
+**69 tests, all passing.** Verified 2026-07-25 on `art-kit-v1`, Python 3.14.4,
 Pillow 12.2.0, `PIXEL_POMO_TOOLS` unset (i.e.
 against the default `C:\Users\claude\pixel_pomo\flutter\tools\gen_objects.py`
 checkout).
@@ -18,11 +18,11 @@ beyond `tempfile.TemporaryDirectory`, no mocked filesystem.
 
 | File | Covers | Tests |
 |---|---|---|
-| `tests/test_model.py` | `Palette` (the nine letters resolving to RGBA). `Drawing` (blank/paint/erase/bounds, `copy()` not sharing rows, and that painting a raw colour flips a drawing from `"letters"` to `"pixels"`). `History` (a whole drag is one undo step, undo/redo restore the exact prior grid, a no-op stroke isn't recorded, redo's branch is dropped by a new stroke after an undo, undo/redo are no-ops at either end, the 200-entry cap). | 13 |
-| `tests/test_engine_io.py` | Importing the 24 shipped flowers live from `gen_objects.py` (letter grids for eleven species, raw composited pixels for the rose). Rendering a drawing and asserting the result equals the engine's own `flower_variant`/`rose_variant` output directly. Every export function — `export_png`, `export_jpg`, `export_engine_sprite` (including three flowers' output compared byte-for-byte against the PNGs actually shipped in `pixel_pomo\flutter\assets\objects`), `export_grid_literal` — and every `ExportRefused` guard (no species set, not 16 cells wide, scale below 1, raw colours in a grid-literal export). | 24 |
+| `tests/test_model.py` | `Palette` (the nine letters resolving to RGBA). `Drawing` (blank/paint/erase/bounds, `copy()` not sharing rows, and that painting a raw colour flips a drawing from `"letters"` to `"pixels"`). `History` (a whole drag is one undo step, undo/redo restore the exact prior grid, a no-op stroke isn't recorded, redo's branch is dropped by a new stroke after an undo, undo/redo are no-ops at either end, the 200-entry cap). Also that `Drawing.kind` is derived from the cells — a raw colour flips it to `"pixels"`, erasing back to all-letters flips it to `"letters"`. | 14 |
+| `tests/test_engine_io.py` | Importing the 24 shipped flowers live from `gen_objects.py` (letter grids for eleven species, raw composited pixels for the rose). Rendering a drawing and asserting the result equals the engine's own `flower_variant`/`rose_variant` output directly. Every export function — `export_png`, `export_jpg`, `export_engine_sprite` (including three flowers' output compared byte-for-byte against the PNGs actually shipped in `pixel_pomo\flutter\assets\objects`), `export_grid_literal` — and every `ExportRefused` guard (no species set, not 16 cells wide, scale below 1, raw colours in a grid-literal export), plus that `engine_sprite_names` (which the overwrite-confirmation dialog shows) names exactly the files `export_engine_sprite` writes. | 25 |
 | `tests/test_store.py` | The JSON codec round-tripping a letters drawing, a raw-pixel drawing, and a mixed one. Every malformed-file `CorruptDrawing` path: missing field, ragged rows, cells not a list of rows, a malformed row, an out-of-alphabet letter, a wrong-length colour tuple, an unknown `kind`. Atomic save (a second save leaves no stray `.tmp` file behind). `Library`: seeding writes/skips-on-repeat, reopening finds what was saved, duplicate/remove/rename, a corrupt file is skipped rather than failing the whole load, two value-equal drawings don't get confused with each other on removal. | 20 |
 | `tests/test_app_smoke.py` | The tkinter window wired up end-to-end against a real (hidden) `Tk()` root: opens with all 24 seeded drawings listed; a click-drag paints a run of cells as one undoable stroke; the eraser clears a cell; switching to another drawing and back preserves the edit; zoom clamps to `[MIN_ZOOM, MAX_ZOOM]`; painting with a picked colour turns a letters drawing into a pixels one; `set_ink` rejects a value `render()` would silently drop (a non-alphabet letter, a wrong-length tuple); the three panes are wired up (canvas and both previews are real `Canvas` widgets); the export dialog's default folder is not inside the game's read-only asset tree; an undo is written through to the drawing's file on disk, not just held in memory. | 10 |
-| **Total** | | **67** |
+| **Total** | | **69** |
 
 ## Not covered
 

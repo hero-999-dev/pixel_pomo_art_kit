@@ -72,7 +72,7 @@ def import_flower(species, model):
         grid = g.rose_variant(model)  # already outlined and composited
         cells = [[px if px[3] else None for px in row] for row in grid]
         return Drawing(name=name, species=species, model=model, cells=cells,
-                       palette=palette, kind="pixels")
+                       palette=palette)
     rows = g._FLOWER_BLOOMS[species][model]
     cells = []
     for line in rows:
@@ -82,7 +82,7 @@ def import_flower(species, model):
             row.append(ch if ch != "." else None)
         cells.append(row)
     return Drawing(name=name, species=species, model=model, cells=cells,
-                   palette=palette, kind="letters")
+                   palette=palette)
 
 
 def import_all():
@@ -149,6 +149,16 @@ def export_jpg(drawing, path, scale=16, background=(255, 255, 255)):
     return Path(path)
 
 
+def engine_sprite_names(drawing):
+    """Basenames export_engine_sprite will write: the model's own sprite, plus
+    the bare thumbnail the shop uses when it's model 0. One definition so the
+    confirmation dialog and the writer can never name different files."""
+    names = [f"flower_{drawing.species}_{drawing.model}.png"]
+    if drawing.model == 0:
+        names.append(f"flower_{drawing.species}.png")
+    return names
+
+
 def export_engine_sprite(drawing, out_dir):
     """Write the sprite(s) the garden loads: ×16, RGBA, engine naming."""
     if drawing.width != 16:
@@ -159,10 +169,7 @@ def export_engine_sprite(drawing, out_dir):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     big = _scaled(drawing, 16)
-    written = [out_dir / f"flower_{drawing.species}_{drawing.model}.png"]
-    if drawing.model == 0:
-        # model 0 doubles as the shop thumbnail, exactly as gen_objects does it
-        written.append(out_dir / f"flower_{drawing.species}.png")
+    written = [out_dir / name for name in engine_sprite_names(drawing)]
     for path in written:
         gen_objects().write_png(str(path), big)
     return written

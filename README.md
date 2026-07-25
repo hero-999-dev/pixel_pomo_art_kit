@@ -96,7 +96,7 @@ nothing else.
 
 ## Tests
 
-67 tests, all passing:
+69 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

@@ -199,6 +199,19 @@ class ExportTest(unittest.TestCase):
         with self.assertRaises(engine_io.ExportRefused):
             engine_io.export_grid_literal(engine_io.import_flower("gul", 0))
 
+    def test_the_confirm_names_are_exactly_the_files_export_writes(self):
+        # engine_sprite_names feeds the overwrite-confirmation dialog; if it ever
+        # named different files than export_engine_sprite writes, the dialog would
+        # under-report what it clobbers. Lock them together.
+        for model, count in ((0, 2), (1, 1)):
+            with self.subTest(model=model):
+                d = engine_io.import_flower("lale", model)
+                names = engine_io.engine_sprite_names(d)
+                self.assertEqual(len(names), count)
+                with tempfile.TemporaryDirectory() as tmp:
+                    written = engine_io.export_engine_sprite(d, Path(tmp))
+                self.assertEqual(sorted(p.name for p in written), sorted(names))
+
     def test_engine_export_refuses_a_drawing_with_no_species(self):
         # A fresh drawing has species="" until the artist picks one.
         d = engine_io.import_flower("lale", 0)

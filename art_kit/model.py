@@ -59,13 +59,12 @@ class Drawing:
     model: int
     cells: list
     palette: Palette
-    kind: str = "letters"
 
     @classmethod
     def blank(cls, width, height, palette, name="untitled", species="", model=0):
         cells = [[None] * width for _ in range(height)]
         return cls(name=name, species=species, model=model, cells=cells,
-                   palette=palette, kind="letters")
+                   palette=palette)
 
     @property
     def height(self):
@@ -91,6 +90,13 @@ class Drawing:
     def is_letters(self):
         return all(c is None or isinstance(c, str)
                    for row in self.cells for c in row)
+
+    @property
+    def kind(self):
+        """Derived, never stored: 'pixels' the moment a raw colour lands, else
+        'letters'. A function of the cells can't fall out of sync the way a
+        hand-updated field would."""
+        return "letters" if self.is_letters() else "pixels"
 
     def copy(self):
         return replace(self, cells=[list(row) for row in self.cells])

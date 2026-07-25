@@ -34,6 +34,16 @@ class DrawingTest(unittest.TestCase):
         d.paint(0, 0, (10, 20, 30, 255))
         self.assertFalse(d.is_letters())
 
+    def test_kind_is_derived_and_tracks_the_cells_both_ways(self):
+        d = Drawing.blank(4, 3, PAL)
+        self.assertEqual(d.kind, "letters")
+        d.paint(0, 0, "m")
+        self.assertEqual(d.kind, "letters")       # a letter is still letters
+        d.paint(1, 0, (1, 2, 3, 255))
+        self.assertEqual(d.kind, "pixels")        # a raw colour flips it
+        d.erase(1, 0)
+        self.assertEqual(d.kind, "letters")       # and removing it flips back
+
     def test_out_of_bounds_paint_is_ignored_not_an_error(self):
         d = Drawing.blank(4, 3, PAL)
         d.paint(9, 9, "m")

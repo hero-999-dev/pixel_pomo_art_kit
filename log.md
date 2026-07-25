@@ -49,4 +49,4 @@ it.
   beside the exe rather than inside its temporary unpack dir. Shipped as a
   zip on the GitHub Release.
 
-**Tests:** 67, all passing — `python -m unittest discover -s tests -v`.
+**Tests:** 69, all passing — `python -m unittest discover -s tests -v`.

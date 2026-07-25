@@ -77,13 +77,15 @@ def from_dict(data):
         width = len(cells[0])
         if any(len(row) != width for row in cells):
             raise CorruptDrawing("rows are not all the same length")
-        kind = data.get("kind", "letters")
-        if kind not in ("letters", "pixels"):
-            raise CorruptDrawing(f"unknown kind {kind!r}")
+        # `kind` is derived from the cells now, not stored on the Drawing, but
+        # a garbage value in the file still means a corrupt file — reject it.
+        stored_kind = data.get("kind", "letters")
+        if stored_kind not in ("letters", "pixels"):
+            raise CorruptDrawing(f"unknown kind {stored_kind!r}")
     except (KeyError, TypeError) as exc:
         raise CorruptDrawing(f"missing or malformed field: {exc}") from exc
     return Drawing(name=name, species=species, model=model, cells=cells,
-                   palette=palette, kind=kind)
+                   palette=palette)
 
 
 def save(drawing, path):

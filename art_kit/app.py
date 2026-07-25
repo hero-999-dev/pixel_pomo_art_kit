@@ -61,14 +61,6 @@ def _hex(px):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def _engine_sprite_names(drawing):
-    """The basenames `engine_io.export_engine_sprite` will write, for the confirm dialog."""
-    names = [f"flower_{drawing.species}_{drawing.model}.png"]
-    if drawing.model == 0:
-        names.append(f"flower_{drawing.species}.png")
-    return names
-
-
 class ArtKitApp:
     def __init__(self, root, library):
         self.root = root
@@ -156,8 +148,8 @@ class ArtKitApp:
         if live is not self._selected:
             # undo/redo swapped `.current` to a snapshot copy; fold its content
             # back onto the object the library actually knows how to save.
+            # (`kind` follows the cells automatically — it's a derived property.)
             self._selected.cells = [list(row) for row in live.cells]
-            self._selected.kind = live.kind
         self.library.save(self._selected)
         self._refresh_list()
         self._redraw()
@@ -317,11 +309,11 @@ class ArtKitApp:
     def _new_drawing(self):
         base = self._selected or (self.library.drawings[0] if self.library.drawings else None)
         if base is not None:
-            palette, species = base.palette, base.species
+            palette, species, model = base.palette, base.species, base.model
         else:
             palette = Palette(d="2E2E2E", m="6E6E6E", l="B0B0B0", centre="F2C94C", rim="1A1A1A")
-            species = ""
-        drawing = Drawing.blank(16, 16, palette, species=species)
+            species, model = "", 0
+        drawing = Drawing.blank(16, 16, palette, species=species, model=model)
         self.library.add(drawing)
         self.select(drawing)
 
@@ -386,7 +378,7 @@ class ArtKitApp:
             initialdir=str(ENGINE_SPRITE_DIR))
         if not out_dir:
             return
-        names = ", ".join(_engine_sprite_names(drawing))
+        names = ", ".join(engine_io.engine_sprite_names(drawing))
         if not messagebox.askyesno(
                 "Pixel Pomo Art Kit",
                 f"This will overwrite:\n{names}\nin {out_dir}\n\nContinue?"):
