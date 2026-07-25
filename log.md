@@ -43,5 +43,10 @@ it.
 - `README.md`, `prompt.md`, `TESTING.md`, and this file, written last, once
   the app was feature-complete, so they describe what actually shipped
   rather than what was planned.
+- Packaged as a standalone Windows `.exe` with PyInstaller (`run_art_kit.py`
+  is the frozen entry point), bundling a copy of `gen_objects.py` so the exe
+  runs on a machine with no game checkout, and writing `library/`/`exports/`
+  beside the exe rather than inside its temporary unpack dir. Shipped as a
+  zip on the GitHub Release.
 
-**Tests:** 66, all passing — `python -m unittest discover -s tests -v`.
+**Tests:** 67, all passing — `python -m unittest discover -s tests -v`.

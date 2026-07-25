@@ -99,3 +99,18 @@ class AppSmokeTest(unittest.TestCase):
         # pixel_pomo is read-only to this app; defaulting the picker there risks
         # clobbering a shipped sprite. The default must live outside that tree.
         self.assertNotIn("pixel_pomo", str(app.ENGINE_SPRITE_DIR).replace("\\", "/"))
+
+    def test_the_saved_file_tracks_an_undo_not_just_memory(self):
+        # History.undo() swaps .current to a different object; the app reconciles
+        # that before library.save(). Without the reconciliation the on-disk file
+        # lags the undo (or the save KeyErrors). Assert disk == memory afterwards.
+        drawing = self.lib.drawings[1]
+        self.ui.select(drawing)
+        self.ui.set_tool("draw")
+        self.ui.set_ink("m")
+        self.ui.on_canvas_press(0, 0)
+        self.ui.on_canvas_release()
+        self.assertEqual(self.ui.history.current.get(0, 0), "m")  # a real change landed
+        self.ui.undo()
+        path = self.lib._paths[id(drawing)]
+        self.assertEqual(store.load(path).cells, self.ui.history.current.cells)

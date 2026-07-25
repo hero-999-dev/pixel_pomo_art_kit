@@ -10,7 +10,14 @@ game's own compositing code, not a reimplementation of it.
 
 ## Running it
 
-From the repository root:
+**Just want to draw?** Download `PixelPomoArtKit-windows.zip` from the latest
+[Release](../../releases/latest), unzip it, and run `PixelPomoArtKit.exe` — no
+Python needed, and it carries its own copy of the sprite generator so it works
+on any Windows machine. (The exe is unsigned, so Windows SmartScreen may say
+"Windows protected your PC" the first time: *More info -> Run anyway*.) It keeps
+`library/` and `exports/` folders next to the exe.
+
+To run from source instead, from the repository root:
 
 ```
 python -m art_kit
@@ -89,7 +96,7 @@ nothing else.
 
 ## Tests
 
-66 tests, all passing:
+67 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v
