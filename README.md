@@ -65,7 +65,7 @@ erase/draw, `+` / `-` zoom.
 |---|---|---|
 | **Export PNG…** | An RGBA PNG at 16x (the export dialog just asks where to save it; `export_png`/`export_jpg` underneath both take a `scale` argument if you're driving them from a script instead of the window). | Sharing a look, a reference — anything that isn't shipping straight into the game. |
 | **Export JPG…** | The same render flattened onto white (JPEG has no alpha channel, so transparency has to become some solid colour — the underlying `export_jpg` takes the background as an explicit argument, the window just always calls it with the white default today). | Quick previews outside the game; never for shipping, since the transparency is gone. |
-| **Export engine sprite…** | The actual file(s) the game loads: `flower_<species>_<model>.png` at the engine's real x16 scale, through the same upscale/write code the shipped assets were made with. Exporting a drawing's model 0 also writes `flower_<species>.png`, the shop thumbnail. Refuses a drawing that isn't exactly 16 cells wide, or has no species set. Defaults to `pixel_pomo\flutter\assets\objects\`, behind a confirmation that names exactly what it will overwrite. | **Hand this back to the developer.** Drop the output into `assets/objects/` and the artwork ships. |
+| **Export engine sprite…** | The actual file(s) the game loads: `flower_<species>_<model>.png` at the engine's real x16 scale, through the same upscale/write code the shipped assets were made with. Exporting a drawing's model 0 also writes `flower_<species>.png`, the shop thumbnail. Refuses a drawing that isn't exactly 16 cells wide, or has no species set. The save dialog opens on a repo-local `exports/` folder — never the game's asset tree, which is read-only to this app — behind a confirmation that names exactly what it will overwrite. | **Hand this back to the developer.** Drop the output into the game's `assets/objects/` and the artwork ships. |
 | **Copy grid literal** | The drawing's rows as Python source text, on the clipboard, ready to paste into `_FLOWER_BLOOMS` in `gen_objects.py`. Refuses a drawing that has any raw-colour cell in it — see below. | **Also hand this to the developer**, whenever the drawing is (or should stay) a letter-grid flower, so the engine's own source of truth matches what shipped. |
 
 ## The one rule to know before you draw
@@ -89,7 +89,7 @@ nothing else.
 
 ## Tests
 
-63 tests, all passing:
+66 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

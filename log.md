@@ -44,4 +44,4 @@ it.
   the app was feature-complete, so they describe what actually shipped
   rather than what was planned.
 
-**Tests:** 63, all passing — `python -m unittest discover -s tests -v`.
+**Tests:** 66, all passing — `python -m unittest discover -s tests -v`.

@@ -136,4 +136,4 @@ rebuild the Pixel Pomo Art Kit from nothing.
 
 ---
 
-63 tests passing at this version (`python -m unittest discover -s tests -v`).
+66 tests passing at this version (`python -m unittest discover -s tests -v`).
