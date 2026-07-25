@@ -61,6 +61,29 @@ def _hex(px):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def _line_cells(c0, r0, c1, r1):
+    """Every cell on the straight line from (c0,r0) to (c1,r1), inclusive.
+
+    Integer Bresenham. A fast drag hands tkinter sparse motion events — cells
+    apart — and painting only the reported cells leaves a dotted trail where
+    the artist drew a stroke."""
+    cells = []
+    dc, dr = abs(c1 - c0), -abs(r1 - r0)
+    sc, sr = (1 if c0 < c1 else -1), (1 if r0 < r1 else -1)
+    err = dc + dr
+    while True:
+        cells.append((c0, r0))
+        if c0 == c1 and r0 == r1:
+            return cells
+        e2 = 2 * err
+        if e2 >= dr:
+            err += dr
+            c0 += sc
+        if e2 <= dc:
+            err += dc
+            r0 += sr
+
+
 class ArtKitApp:
     def __init__(self, root, library):
         self.root = root
@@ -70,6 +93,7 @@ class ArtKitApp:
         self.zoom_level = DEFAULT_ZOOM
         self._histories = {}
         self._painting = False
+        self._last_cell = None
         self.history = None
         self._selected = None  # the library-registered Drawing, see module docstring
         root.title("Pixel Pomo Art Kit")
@@ -81,11 +105,15 @@ class ArtKitApp:
     def select(self, drawing):
         self._selected = drawing
         self.history = self._histories.setdefault(id(drawing), History(drawing))
+        self.root.title(f"Pixel Pomo Art Kit — {drawing.name}")
         self._refresh_list()
         self._refresh_palette()
+        self._refresh_ink_ui()
         self._redraw()
 
     def set_tool(self, name):
+        if name not in ("draw", "erase"):
+            raise ValueError(f"tool must be 'draw' or 'erase', got {name!r}")
         self.tool = name
         self._refresh_tool_buttons()
 
@@ -99,6 +127,7 @@ class ArtKitApp:
         if not ok:
             raise ValueError(f"ink must be a palette letter or an RGBA tuple, got {value!r}")
         self.ink = value
+        self._refresh_ink_ui()
 
     def zoom(self, delta):
         self.zoom_level = max(MIN_ZOOM, min(MAX_ZOOM, self.zoom_level + delta * 2))
@@ -122,18 +151,40 @@ class ArtKitApp:
             return
         self.history.begin_stroke()
         self._painting = True
+        self._last_cell = (col, row)
         self._apply(col, row)
+        self._redraw()
 
     def on_canvas_drag(self, col, row):
-        if self._painting:
-            self._apply(col, row)
+        if not self._painting:
+            return
+        # Walk the whole line from the last reported cell, so a quick stroke
+        # is a stroke, not a trail of dots (see _line_cells).
+        for c, r in _line_cells(*self._last_cell, col, row)[1:]:
+            self._apply(c, r)
+        self._last_cell = (col, row)
+        self._redraw()
 
     def on_canvas_release(self):
         if not self._painting:
             return
         self._painting = False
+        self._last_cell = None
         self.history.end_stroke()
         self._after_change()
+
+    def on_canvas_pick(self, col, row):
+        """Eyedropper: the cell under the cursor becomes the ink.
+
+        On a letter drawing the tones are close enough that the eye cannot
+        tell d from m from l — this is how the artist continues in the same
+        tone without guessing. An empty cell changes nothing (picking
+        "nothing" reads as a misclick, not as reaching for the eraser)."""
+        if self.history is None:
+            return
+        cell = self.history.current.get(col, row)
+        if cell is not None:
+            self.set_ink(cell)
 
     def _apply(self, col, row):
         drawing = self.history.current
@@ -141,7 +192,6 @@ class ArtKitApp:
             drawing.erase(col, row)
         else:
             drawing.paint(col, row, self.ink)
-        self._redraw()
 
     def _after_change(self):
         live = self.history.current
@@ -173,16 +223,17 @@ class ArtKitApp:
 
         scrollbar = tk.Scrollbar(frame, orient="vertical")
         scrollbar.pack(side="right", fill="y")
-        list_canvas = tk.Canvas(frame, highlightthickness=0, bg="#1e1e1e")
-        list_canvas.pack(side="left", fill="both", expand=True)
-        list_canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.configure(command=list_canvas.yview)
+        self._list_canvas = tk.Canvas(frame, highlightthickness=0, bg="#1e1e1e")
+        self._list_canvas.pack(side="left", fill="both", expand=True)
+        self._list_canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.configure(command=self._list_canvas.yview)
 
-        self._list_frame = tk.Frame(list_canvas, bg="#1e1e1e")
-        list_canvas.create_window((0, 0), window=self._list_frame, anchor="nw")
+        self._list_frame = tk.Frame(self._list_canvas, bg="#1e1e1e")
+        self._list_canvas.create_window((0, 0), window=self._list_frame, anchor="nw")
         self._list_frame.bind(
             "<Configure>",
-            lambda e: list_canvas.configure(scrollregion=list_canvas.bbox("all")))
+            lambda e: self._list_canvas.configure(
+                scrollregion=self._list_canvas.bbox("all")))
 
     def _build_canvas_pane(self, parent):
         frame = tk.Frame(parent, bg="#1e1e1e")
@@ -199,11 +250,23 @@ class ArtKitApp:
         self.preview_squint = tk.Canvas(side, highlightthickness=0, bg="#1e1e1e")
         self.preview_squint.pack()
 
-        self.canvas = tk.Canvas(frame, highlightthickness=0, bg="#1e1e1e")
-        self.canvas.pack(side="left", fill="both", expand=True, padx=8, pady=8)
+        # Scrollbars, because 16 cells x zoom 48 is wider than the pane — the
+        # edge pixels of a sprite must stay reachable at every zoom.
+        wrap = tk.Frame(frame, bg="#1e1e1e")
+        wrap.pack(side="left", fill="both", expand=True, padx=8, pady=8)
+        vbar = tk.Scrollbar(wrap, orient="vertical")
+        vbar.pack(side="right", fill="y")
+        hbar = tk.Scrollbar(wrap, orient="horizontal")
+        hbar.pack(side="bottom", fill="x")
+        self.canvas = tk.Canvas(wrap, highlightthickness=0, bg="#1e1e1e",
+                                yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        vbar.configure(command=self.canvas.yview)
+        hbar.configure(command=self.canvas.xview)
         self.canvas.bind("<Button-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
+        self.canvas.bind("<Button-3>", self._on_pick)
         self.canvas.bind("<MouseWheel>", lambda e: self.zoom(1 if e.delta > 0 else -1))
 
     def _build_tools_pane(self, parent):
@@ -224,6 +287,11 @@ class ArtKitApp:
         undo_row.pack(fill="x", padx=6, pady=2)
         tk.Button(undo_row, text="UNDO", command=self.undo).pack(side="left", expand=True, fill="x")
         tk.Button(undo_row, text="REDO", command=self.redo).pack(side="left", expand=True, fill="x")
+
+        # What the next click will paint — the one piece of state the artist
+        # otherwise has to keep in their head.
+        self._ink_swatch = tk.Label(frame, text="", bg="#1e1e1e", fg="#eeeeee")
+        self._ink_swatch.pack(fill="x", padx=6, pady=(6, 0))
 
         tk.Label(frame, text="Palette", bg="#1e1e1e", fg="#cccccc").pack(pady=(10, 0))
         palette_frame = tk.Frame(frame, bg="#1e1e1e")
@@ -247,6 +315,7 @@ class ArtKitApp:
             fill="x", padx=6, pady=10)
 
         self._refresh_tool_buttons()
+        self._refresh_ink_ui()
 
     def _bind_keys(self):
         self.root.bind("<Control-z>", lambda e: self.undo())
@@ -260,21 +329,36 @@ class ArtKitApp:
         self.root.bind("<KP_Subtract>", lambda e: self.zoom(-1))
 
     # ---- canvas <-> grid glue -------------------------------------------
+    def _grid_at(self, event):
+        # canvasx/canvasy fold the scroll offset in; raw event coords would be
+        # off by exactly the scrolled distance.
+        return (int(self.canvas.canvasx(event.x)) // self.zoom_level,
+                int(self.canvas.canvasy(event.y)) // self.zoom_level)
+
     def _on_press(self, event):
-        self.on_canvas_press(event.x // self.zoom_level, event.y // self.zoom_level)
+        self.on_canvas_press(*self._grid_at(event))
 
     def _on_drag(self, event):
-        self.on_canvas_drag(event.x // self.zoom_level, event.y // self.zoom_level)
+        self.on_canvas_drag(*self._grid_at(event))
 
     def _on_release(self, _event):
         self.on_canvas_release()
 
+    def _on_pick(self, event):
+        self.on_canvas_pick(*self._grid_at(event))
+
     # ---- the library list ------------------------------------------------
     def _refresh_list(self):
+        # Rebuilding resets the scroll; put it back where the artist left it,
+        # or every stroke on flower #20 jumps the list to the top.
+        offset = self._list_canvas.yview()[0]
         for child in self._list_frame.winfo_children():
             child.destroy()
         for drawing in self.library.drawings:
             self._build_row(drawing)
+        self._list_frame.update_idletasks()
+        self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+        self._list_canvas.yview_moveto(offset)
 
     def _build_row(self, drawing):
         selected = drawing is self._selected
@@ -330,6 +414,8 @@ class ArtKitApp:
             # object the library registered - safe to save regardless of
             # whether it is the one currently open for editing.
             self.library.save(drawing)
+            if drawing is self._selected:
+                self.root.title(f"Pixel Pomo Art Kit — {name}")
             self._refresh_list()
 
     def _delete(self, drawing):
@@ -345,6 +431,7 @@ class ArtKitApp:
             if self.library.drawings:
                 self.select(self.library.drawings[0])
                 return
+            self.root.title("Pixel Pomo Art Kit")
         self._refresh_list()
         self._redraw()
 
@@ -384,9 +471,14 @@ class ArtKitApp:
                 f"This will overwrite:\n{names}\nin {out_dir}\n\nContinue?"):
             return
         try:
-            engine_io.export_engine_sprite(drawing, out_dir)
+            written = engine_io.export_engine_sprite(drawing, out_dir)
         except engine_io.ExportRefused as exc:
             messagebox.showerror("Pixel Pomo Art Kit", str(exc))
+            return
+        # Multi-file write into a browsed-to folder: say what landed where,
+        # or a successful export is indistinguishable from a silent failure.
+        messagebox.showinfo("Pixel Pomo Art Kit",
+                            "Exported:\n" + "\n".join(str(p) for p in written))
 
     def _copy_grid_literal(self, drawing):
         try:
@@ -419,6 +511,7 @@ class ArtKitApp:
         self._draw_cells(self.canvas, engine_io.render(drawing), z)
         if z >= 8:
             self._draw_grid_lines(w, h, z)
+        self.canvas.configure(scrollregion=(0, 0, w * z, h * z))
 
     def _draw_previews(self):
         self.preview_1x.delete("all")
@@ -474,3 +567,21 @@ class ArtKitApp:
         colors = self.history.current.palette.colors()
         for letter, btn in self._slot_buttons.items():
             btn.configure(bg=_hex(colors[letter]), activebackground=_hex(colors[letter]))
+
+    def _refresh_ink_ui(self):
+        swatch = getattr(self, "_ink_swatch", None)
+        if swatch is None:
+            return  # tools pane not built yet
+        ink = self.ink
+        if isinstance(ink, str):
+            rgba = (self.history.current.palette.colors()[ink]
+                    if self.history else (128, 128, 128, 255))
+            text = f"ink: {dict(SLOTS)[ink]} ({ink})"
+        else:
+            rgba = ink
+            text = f"ink: {_hex(ink)}"
+        r, g, b, _a = rgba
+        fg = "#000000" if (r * 299 + g * 587 + b * 114) > 128000 else "#ffffff"
+        swatch.configure(text=text, bg=_hex(rgba), fg=fg)
+        for letter, btn in getattr(self, "_slot_buttons", {}).items():
+            btn.configure(relief="sunken" if ink == letter else "raised")

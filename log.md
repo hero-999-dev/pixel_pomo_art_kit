@@ -4,6 +4,60 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2 — upgrade pass by a stronger model (2026-07-25)
+
+**Date:** 2026-07-25
+
+**Prompt (Turkish):** "simdi ilk promptumu biliyorsun suraya ekleyeyim, suan
+dha üst bir modelle yapiyorum, bunu daha öncesinde opus, sonnet, haiku karisimi
+kullandim, senden istedigim prompta bak, yapilan uygulamaya bak gerekirse,
+kendin nasil yapardin, düsün , yükseltmeleri yap, yada yeniden yap, incele ve
+hatalari gider, test et, son halini githube pushla"
+
+In English: v1 was built by a mix of Opus/Sonnet/Haiku subagents; re-examine
+the original prompt and the app with a stronger model, decide whether to
+upgrade or rebuild, fix what's wrong, test, and push the final state.
+
+**Verdict on the architecture:** kept. Importing the game's own
+`gen_objects.py` and running preview + export through its real compositing is
+the one decision everything else hangs off — it is what makes the exported
+sprite byte-identical to the shipped asset, and a rewrite would re-risk the
+already-proven byte-equality, atomic saves, and undo/identity reconciliation
+for no user-visible gain.
+
+**What the review found and fixed** — all in the window layer; the model,
+bridge, and store came through the re-read clean:
+
+- **Fast drags left dotted lines.** tkinter delivers motion events sparsely,
+  and the canvas painted only the reported cells. Strokes now interpolate
+  with integer Bresenham between consecutive events, so a quick flick is a
+  continuous line. (This is the one an artist would have hit in the first
+  minute.)
+- **Edge cells were unreachable at high zoom.** 16 cells x 48px is wider than
+  the canvas pane; there were no scrollbars. The canvas now scrolls both
+  ways, and pointer events go through `canvasx`/`canvasy` so painting stays
+  accurate while scrolled.
+- **No eyedropper.** On a letter drawing the eye cannot reliably tell `d`
+  from `m` from `l`, so continuing in the same tone meant guessing.
+  Right-click now picks the cell under the cursor as the ink; empty cells
+  are ignored (a misclick should not quietly become "paint nothing").
+- **Nothing showed what the next click would paint.** The tools pane now has
+  an ink swatch (colour + name), and the active palette letter shows as
+  pressed.
+- **The library list jumped to the top on every stroke** (it is rebuilt to
+  refresh thumbnails, which reset the scroll). The scroll position is now
+  restored across rebuilds.
+- Smaller: `set_tool` rejects unknown tools at the boundary (matching
+  `set_ink`); a successful engine-sprite export now reports the files it
+  wrote instead of finishing silently; the title bar names the drawing being
+  edited.
+
+**Tests:** 72, all passing — three new: the Bresenham line is filled exactly,
+right-click eyedropping picks letters and ignores empties, unknown tools are
+refused.
+
+---
+
 ## v1 — initial build (2026-07-25)
 
 **Date:** 2026-07-25

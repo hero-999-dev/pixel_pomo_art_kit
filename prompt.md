@@ -100,15 +100,20 @@ rebuild the Pixel Pomo Art Kit from nothing.
 >   to start a new blank drawing that carries over the currently open
 >   drawing's species and palette.
 > - An expanding **canvas** in the centre: click or drag to paint with the
->   current tool and ink; mouse wheel (or `+`/`-`) to zoom; a checkerboard
->   under transparent cells; grid lines once zoomed in enough to show them
->   usefully. Beside it, two small live previews rendered through the exact
->   same code as every export — one at actual size, one at a fixed "squint
->   test" scale so the artist can sanity-check readability without eyeballing
->   a zoom level themselves.
-> - A **tools** pane on the right: a draw/erase toggle, undo/redo, one button
->   per palette letter coloured from the open drawing's own palette, a row of
->   app-wide ready-made colours, and a free colour picker for anything else.
+>   current tool and ink, interpolating between sparse drag events so a fast
+>   stroke stays a continuous line; right-click as an eyedropper that makes
+>   the cell under the cursor the current ink; mouse wheel (or `+`/`-`) to
+>   zoom, with scrollbars so edge cells stay reachable at maximum zoom; a
+>   checkerboard under transparent cells; grid lines once zoomed in enough to
+>   show them usefully. Beside it, two small live previews rendered through
+>   the exact same code as every export — one at actual size, one at a fixed
+>   "squint test" scale so the artist can sanity-check readability without
+>   eyeballing a zoom level themselves.
+> - A **tools** pane on the right: a draw/erase toggle, undo/redo, a swatch
+>   that always shows what the next click will paint, one button per palette
+>   letter coloured from the open drawing's own palette (the active letter
+>   visibly pressed), a row of app-wide ready-made colours, and a free colour
+>   picker for anything else.
 > - Split the pointer handling in two layers: methods that take grid
 >   coordinates and carry all of the actual behaviour (paint, erase, begin/end
 >   a stroke) versus the toolkit's own event bindings, which do nothing but
@@ -136,4 +141,4 @@ rebuild the Pixel Pomo Art Kit from nothing.
 
 ---
 
-69 tests passing at this version (`python -m unittest discover -s tests -v`).
+72 tests passing at this version (`python -m unittest discover -s tests -v`).

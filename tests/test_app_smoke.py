@@ -100,6 +100,36 @@ class AppSmokeTest(unittest.TestCase):
         # clobbering a shipped sprite. The default must live outside that tree.
         self.assertNotIn("pixel_pomo", str(app.ENGINE_SPRITE_DIR).replace("\\", "/"))
 
+    def test_a_fast_drag_fills_the_line_between_sparse_motion_events(self):
+        # tkinter reports motion sparsely during a quick drag; the app must
+        # interpolate or a stroke comes out dotted.
+        self.ui._new_drawing()  # blank 16x16, so the painted set is exact
+        self.ui.set_tool("draw")
+        self.ui.set_ink("m")
+        self.ui.on_canvas_press(0, 0)
+        self.ui.on_canvas_drag(4, 2)  # one event, five cells of travel
+        self.ui.on_canvas_release()
+        d = self.ui.history.current
+        painted = {(c, r) for r in range(d.height) for c in range(d.width)
+                   if d.get(c, r) == "m"}
+        self.assertEqual(painted, {(0, 0), (1, 1), (2, 1), (3, 2), (4, 2)})
+
+    def test_right_click_picks_the_cell_under_the_cursor_as_ink(self):
+        self.ui._new_drawing()
+        self.ui.set_tool("draw")
+        self.ui.set_ink("G")
+        self.ui.on_canvas_press(2, 2)
+        self.ui.on_canvas_release()
+        self.ui.set_ink("m")
+        self.ui.on_canvas_pick(2, 2)
+        self.assertEqual(self.ui.ink, "G")
+        self.ui.on_canvas_pick(0, 0)  # empty cell: a misclick, not an eraser
+        self.assertEqual(self.ui.ink, "G")
+
+    def test_set_tool_rejects_an_unknown_tool(self):
+        with self.assertRaises(ValueError):
+            self.ui.set_tool("fill")
+
     def test_the_saved_file_tracks_an_undo_not_just_memory(self):
         # History.undo() swaps .current to a different object; the app reconciles
         # that before library.save(). Without the reconciliation the on-disk file

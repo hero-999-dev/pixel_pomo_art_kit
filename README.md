@@ -50,21 +50,27 @@ Three panes, left to right:
   literal, Rename…, Delete. Clicking a row opens it in the canvas.
   `+ NEW DRAWING` at the bottom starts a blank 16x16 drawing, carrying over
   the species and palette of whatever is currently selected.
-- **Canvas.** Click or drag to paint with the current tool and ink colour;
-  the mouse wheel (or `+`/`-`) zooms from 4x to 48x; empty cells show a
-  checkerboard; grid lines appear once each cell is 8px or larger. Beside it
-  sit two live previews, both rendered through the same engine code as every
-  export: one at 1x actual size, and one at a fixed "squint test" scale —
-  the same distance check the project already requires before a sprite is
-  accepted, so you don't have to eyeball it yourself.
-- **Tools.** DRAW / ERASE, UNDO / REDO, the nine palette-letter slots (dark,
-  mid, light, centre, bloom seam, stem, leaf, vein, plant seam — coloured
-  from the open drawing's own palette), a row of ten ready-made colours drawn
-  from Pixel Pomo's own theme palette, and a `PICK COLOUR…` button for
-  anything outside the palette.
+- **Canvas.** Click or drag to paint with the current tool and ink colour —
+  fast drags are interpolated, so a quick stroke is a continuous line, not a
+  trail of dots. **Right-click is an eyedropper**: the cell under the cursor
+  becomes the ink, which is how you continue in the same tone when the eye
+  can't tell `d` from `m` from `l`. The mouse wheel (or `+`/`-`) zooms from
+  4x to 48x, with scrollbars so the edge pixels stay reachable at any zoom;
+  empty cells show a checkerboard; grid lines appear once each cell is 8px
+  or larger. Beside it sit two live previews, both rendered through the same
+  engine code as every export: one at 1x actual size, and one at a fixed
+  "squint test" scale — the same distance check the project already requires
+  before a sprite is accepted, so you don't have to eyeball it yourself.
+- **Tools.** DRAW / ERASE, UNDO / REDO, an **ink swatch** showing exactly
+  what the next click will paint, the nine palette-letter slots (dark, mid,
+  light, centre, bloom seam, stem, leaf, vein, plant seam — coloured from
+  the open drawing's own palette, the active one held down), a row of ten
+  ready-made colours drawn from Pixel Pomo's own theme palette, and a
+  `PICK COLOUR…` button for anything outside the palette.
 
 Keyboard: `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo, `e` / `b`
-erase/draw, `+` / `-` zoom.
+erase/draw, `+` / `-` zoom. Right-click picks up the colour under the
+cursor. The title bar always names the drawing you are editing.
 
 ## Exports, and which one to hand back to the developer
 
@@ -96,7 +102,7 @@ nothing else.
 
 ## Tests
 
-69 tests, all passing:
+72 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v
