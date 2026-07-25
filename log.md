@@ -8,9 +8,31 @@ What was built, round by round. Newest first.
 
 **Date:** 2026-07-25
 
-**Prompt:** _[original Turkish prompt to be filled in by the user]_ — in
-English: a Windows desktop pixel editor an art student can draw Pixel Pomo
-flowers in, whose exported sprite is byte-identical to what the game ships.
+**Prompt (Turkish):** "simdi yeni bir dictionary yapalim, drawing kit diye,
+flower studyleri icine koyalim. ve istedigim sey su, ben cizimleri yapmasi icin
+bir sanat ögrencisiyle konusuyorum motora uygun 2d pixel cizmesi icin söyle bir
+planim var, bir uygulama olsun solda cicekler yaptigimiz, ve sol altta + olacak
+ve yeni cizim ekleyecegiz, onun disinda orta alanda piksel kareleri teker
+koyacagimiz cizim alani, yakinlastirma, uzaklastirma olacak, sag taraftan renk
+sececegiz,uygulamadaki gibi ve ortada mouse tiklamasiyla yerlestirecegiz, ayrica
+sagda cizim ve silgi modu olacak, solda ayrica cizimin üstünde üc nokta olacak
+basinca cogalt ve export olacak png, jpg falan exportu olacak,ve motora özel
+sprite exportu da olsun, simdi bu uygulamayi yaparken ciceklrin tüm modellerini
+bu uygulamaya ekle, bu uygulama icin, prompt, readme, log, test md olacak, bu
+uygulamanin adi pixel pomo art kit olacak,windows icin olacak, bu uygulama, ve
+sagda cizimde undo ve redo tusu olacak, md dosyalari icin benzer processleri
+uygula,"
+
+In English: a new `drawing kit` folder with the flower studies inside; a
+Windows desktop pixel editor for an art student to draw engine-ready 2D pixel
+flowers — flowers listed on the left with a `+` at the bottom-left to add a new
+one, a centre canvas that places pixel squares one click at a time with
+zoom in/out, colour picked on the right (as in the app) and placed by mouse
+click, draw and erase modes on the right, a three-dot menu above each drawing on
+the left for duplicate and export (PNG, JPG, and an engine-specific sprite
+export), all flower models loaded into the app, undo/redo on the right, its own
+prompt/readme/log/test md files following the same process, named **Pixel Pomo
+Art Kit**.
 
 **Changes:** the app was built incrementally — the data model first, then the
 bridge to the game's sprite generator, then on-disk storage, then the window
