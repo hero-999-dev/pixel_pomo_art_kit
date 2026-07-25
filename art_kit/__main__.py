@@ -1,11 +1,10 @@
 """python -m art_kit"""
 import tkinter as tk
-from pathlib import Path
 
 from art_kit import store
-from art_kit.app import ArtKitApp
+from art_kit.app import ArtKitApp, base_dir
 
-LIBRARY = Path(__file__).resolve().parent.parent / "library"
+LIBRARY = base_dir() / "library"
 
 
 def main():

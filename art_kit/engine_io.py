@@ -23,6 +23,10 @@ GEN_OBJECTS_DIR = Path(
 def gen_objects():
     """The `gen_objects` module, imported from the Pixel Pomo checkout."""
     path = GEN_OBJECTS_DIR / "gen_objects.py"
+    if not path.exists() and getattr(sys, "frozen", False):
+        # Packaged as a standalone .exe on a machine with no game checkout:
+        # fall back to the copy PyInstaller bundled at the archive root.
+        path = Path(sys._MEIPASS) / "gen_objects.py"
     if not path.exists():
         raise FileNotFoundError(
             f"gen_objects.py not found at {path}. Point the PIXEL_POMO_TOOLS "

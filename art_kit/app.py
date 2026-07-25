@@ -15,6 +15,7 @@ raise KeyError. `_selected` is kept as the stable, library-registered object;
 so the library and the on-disk file always describe the same drawing the
 library thinks it is holding.
 """
+import sys
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, simpledialog
 from pathlib import Path
@@ -39,11 +40,20 @@ SLOTS = [("d", "dark"), ("m", "mid"), ("l", "light"), ("C", "centre"),
 READY = ["FF5A5F", "F2C94C", "5FBF4A", "3E8E36", "8E4FE0", "E02C6D",
          "F7EFDD", "1E1E2E", "CDD6F4", "FFFFFF"]
 
+def base_dir():
+    """Where the app keeps `library/` and `exports/`: beside the .exe when
+    frozen by PyInstaller (a onefile exe unpacks its code to a temp dir, so
+    `__file__` is not a place to write), else the repo root."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
 # Where the export dialog opens. Deliberately NOT the game's asset folder:
 # pixel_pomo is read-only to this app, and defaulting there risks overwriting a
 # shipped flower_*.png (the very files the byte-equality tests trust). The
 # artist browses over by hand if they really mean to update the game.
-ENGINE_SPRITE_DIR = Path(__file__).resolve().parent.parent / "exports"
+ENGINE_SPRITE_DIR = base_dir() / "exports"
 
 
 def _hex(px):
