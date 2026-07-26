@@ -3,9 +3,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+
 from art_kit import engine_io
 from art_kit.model import Drawing
 import pathlib
+
+# Everything the app seeds: two models per flower, plus the forest props the
+# engine loads (#v34.8). Derived, so adding a species or a tree moves it
+# automatically instead of leaving a stale literal behind.
+SEEDED = len(engine_io.SPECIES) * 2 + sum(n for _, n in engine_io.FOREST)
+
 
 # The game checkout is found RELATIVE to this file (both live under one
 # "Pixel Pomo" folder), so moving or renaming that folder can't break it.
@@ -46,7 +53,7 @@ class ImportBridgeTest(unittest.TestCase):
 class ImportFlowersTest(unittest.TestCase):
     def test_twelve_species_two_models_each(self):
         drawings = engine_io.import_all()
-        self.assertEqual(len(drawings), 24)
+        self.assertEqual(len(drawings), SEEDED)
         self.assertEqual(len(engine_io.SPECIES), 12)
         self.assertIn("gul", engine_io.SPECIES)
         self.assertIn("lale", engine_io.SPECIES)
@@ -240,3 +247,63 @@ class ExportTest(unittest.TestCase):
             with self.assertRaises(engine_io.ExportRefused):
                 engine_io.export_png(d, Path(tmp) / "x.png", scale=0)
             self.assertFalse((Path(tmp) / "x.png").exists())
+
+
+class ForestPropsAreEditable(unittest.TestCase):
+    """#v34.8 — the artist asked to draw the forest, not just the flowers."""
+
+    def test_the_library_offers_every_prop_the_engine_loads(self):
+        names = {d.name for d in engine_io.import_all() if engine_io.is_forest(d.species)}
+        expected = {f"{kind}_{i:02d}" for kind, n in engine_io.FOREST for i in range(n)}
+        self.assertEqual(names, expected)
+
+    def test_a_tree_opens_at_the_size_it_occupies_in_the_garden(self):
+        # A tree's canvas IS its size: the engine reads the tile count from its
+        # own table and the sprite is 16px per tile, so a 4-tile tree has to be
+        # a 64-cell grid or it renders at the wrong pixel density.
+        gen = engine_io.gen_objects()
+        for i in range(len(gen.TREE_TILES)):
+            with self.subTest(tree=i):
+                d = engine_io.import_forest_prop("tree", i)
+                want = gen.TREE_TILES[i] * gen.TREE_PX_PER_TILE
+                self.assertEqual((d.width, d.height), (want, want))
+
+    def test_bushes_and_rocks_are_one_tile(self):
+        for kind in ("bush", "rock"):
+            d = engine_io.import_forest_prop(kind, 0)
+            self.assertEqual((d.width, d.height), (16, 16))
+
+    def test_a_prop_exports_under_its_own_engine_filename(self):
+        # NOT flower_tree_00_0.png — the engine loads forest props by their own
+        # name, and the `flower_` prefix on a tree was the #v17 "only shadows"
+        # bug (it looked up a file that does not exist and drew nothing).
+        d = engine_io.import_forest_prop("tree", 7)
+        self.assertEqual(engine_io.engine_sprite_names(d), ["tree_07.png"])
+        self.assertEqual(engine_io.engine_sprite_names(engine_io.import_forest_prop("rock", 2)),
+                         ["rock_02.png"])
+
+    def test_an_untouched_prop_exports_byte_for_byte_as_shipped(self):
+        # The whole point of the kit: what it writes IS the shipped sprite.
+        shipped = engine_io.APP_DIR / "flutter" / "assets" / "objects"
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("tree_00", "tree_03", "tree_12", "bush_04", "rock_01"):
+                with self.subTest(prop=name):
+                    kind, idx = name.split("_")
+                    d = engine_io.import_forest_prop(kind, int(idx))
+                    out = engine_io.export_engine_sprite(d, tmp)[0]
+                    self.assertEqual(out.read_bytes(), (shipped / f"{name}.png").read_bytes())
+
+    def test_an_off_size_tree_is_refused_rather_than_written_wrong(self):
+        d = engine_io.import_forest_prop("tree", 0)          # a 2-tile tree, 32 cells
+        d.resize(48, 48)
+        with self.assertRaises(engine_io.ExportRefused):
+            engine_io.export_engine_sprite(d, tempfile.gettempdir())
+
+    def test_a_prop_is_raw_pixels_so_the_engine_adds_no_rim(self):
+        # Flowers are letter grids the engine outlines; forest props are drawn
+        # exactly as painted. Rendering one must not change it.
+        d = engine_io.import_forest_prop("bush", 1)
+        rendered = engine_io.render(d)
+        original = engine_io.gen_objects()._bush_variant(2)
+        self.assertEqual(rendered, original)
+

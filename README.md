@@ -37,8 +37,15 @@ Requirements:
   for a layout that isn't this one.
 
 On first run the app creates a `library/` folder next to `art_kit/` and seeds
-it with the 24 flowers the game already ships (12 species, 2 hand-authored
-models each), read live from `gen_objects.py` — not copied in. Every drawing
+it with everything the game ships, read live from `gen_objects.py` — not copied
+in: the **24 flowers** (12 species, 2 hand-authored models each) and the whole
+**forest** — 20 trees, 10 bushes, 5 rocks (#v34.8).
+
+Forest props are raw pixel art: no letter palette, no automatic rim, so what you
+paint is exactly what the garden draws. A tree's canvas size *is* its size in the
+garden — 16px per tile, so a 2/3/4-tile tree is a 32/48/64-cell grid — and
+exporting one at the wrong size is refused rather than written at a pixel density
+that would not match the rest of the scene. Every drawing
 is one JSON file in `library/`: plain, readable text, safe to open, diff, or
 hand-edit if the app ever writes something wrong. The first time a session
 touches a drawing, the file it started from is kept as `<name>.json.bak` —
@@ -87,7 +94,7 @@ editing.
 |---|---|---|
 | **Export PNG…** | An RGBA PNG at 16x (the export dialog just asks where to save it; `export_png`/`export_jpg` underneath both take a `scale` argument if you're driving them from a script instead of the window). | Sharing a look, a reference — anything that isn't shipping straight into the game. |
 | **Export JPG…** | The same render flattened onto white (JPEG has no alpha channel, so transparency has to become some solid colour — the underlying `export_jpg` takes the background as an explicit argument, the window just always calls it with the white default today). | Quick previews outside the game; never for shipping, since the transparency is gone. |
-| **Export engine sprite…** | The actual file(s) the game loads: `flower_<species>_<model>.png` at the engine's real x16 scale, through the same upscale/write code the shipped assets were made with. Exporting a drawing's model 0 also writes `flower_<species>.png`, the shop thumbnail. Refuses a drawing that isn't exactly 16 cells wide, or has no species set. The save dialog opens on a repo-local `exports/` folder — never the game's asset tree, which is read-only to this app — behind a confirmation that names exactly what it will overwrite. | **Hand this back to the developer.** Drop the output into the game's `assets/objects/` and the artwork ships. |
+| **Export engine sprite…** | The actual file(s) the game loads: `flower_<species>_<model>.png` (or `tree_07.png` for a forest prop) at the engine's real x16 scale, through the same upscale/write code the shipped assets were made with. Exporting a drawing's model 0 also writes `flower_<species>.png`, the shop thumbnail. Refuses a drawing that isn't exactly 16 cells wide, or has no species set. The save dialog opens on a repo-local `exports/` folder — never the game's asset tree, which is read-only to this app — behind a confirmation that names exactly what it will overwrite. | **Hand this back to the developer.** Drop the output into the game's `assets/objects/` and the artwork ships. |
 ## Sending a drawing back (for the artist)
 
 Two easy ways, pick either:

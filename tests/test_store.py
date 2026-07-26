@@ -3,8 +3,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+
 from art_kit import engine_io, store
 from art_kit.model import Drawing, Palette
+
+# Everything the app seeds: two models per flower, plus the forest props the
+# engine loads (#v34.8). Derived, so adding a species or a tree moves it
+# automatically instead of leaving a stale literal behind.
+SEEDED = len(engine_io.SPECIES) * 2 + sum(n for _, n in engine_io.FOREST)
+
 
 PAL = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C", rim="2E0810")
 
@@ -104,19 +111,19 @@ class LibraryTest(unittest.TestCase):
 
     def test_seeding_writes_all_twenty_four_models(self):
         self.lib.seed_from_engine()
-        self.assertEqual(len(self.lib.drawings), 24)
-        self.assertEqual(len(list(Path(self.tmp.name).glob("*.json"))), 24)
+        self.assertEqual(len(self.lib.drawings), SEEDED)
+        self.assertEqual(len(list(Path(self.tmp.name).glob("*.json"))), SEEDED)
 
     def test_seeding_twice_does_not_duplicate(self):
         self.lib.seed_from_engine()
         self.lib.seed_from_engine()
-        self.assertEqual(len(self.lib.drawings), 24)
+        self.assertEqual(len(self.lib.drawings), SEEDED)
 
     def test_reopening_the_library_finds_what_was_saved(self):
         self.lib.seed_from_engine()
         again = store.Library(Path(self.tmp.name))
         again.load_all()
-        self.assertEqual(len(again.drawings), 24)
+        self.assertEqual(len(again.drawings), SEEDED)
 
     def test_duplicate_makes_an_independent_copy_with_a_new_name(self):
         d = self.lib.add(Drawing.blank(16, 4, PAL, name="rose sketch", species="lale"))
@@ -170,5 +177,5 @@ class LibraryTest(unittest.TestCase):
         (Path(self.tmp.name) / "broken.json").write_text("{ not json", encoding="utf-8")
         again = store.Library(Path(self.tmp.name))
         skipped = again.load_all()
-        self.assertEqual(len(again.drawings), 24)
+        self.assertEqual(len(again.drawings), SEEDED)
         self.assertEqual(len(skipped), 1)

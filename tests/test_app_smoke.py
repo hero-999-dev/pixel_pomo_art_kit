@@ -2,7 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from art_kit import app, store
+
+from art_kit import app, engine_io, store
+
+# Everything the app seeds: two models per flower, plus the forest props the
+# engine loads (#v34.8). Derived, so adding a species or a tree moves it
+# automatically instead of leaving a stale literal behind.
+SEEDED = len(engine_io.SPECIES) * 2 + sum(n for _, n in engine_io.FOREST)
+
 
 
 def _tk_or_skip():
@@ -26,7 +33,7 @@ class AppSmokeTest(unittest.TestCase):
         self.ui = app.ArtKitApp(self.root, self.lib)
 
     def test_it_opens_on_the_first_drawing_with_all_twenty_four_listed(self):
-        self.assertEqual(len(self.lib.drawings), 24)
+        self.assertEqual(len(self.lib.drawings), SEEDED)
         self.assertIsNotNone(self.ui.history.current)
 
     def test_a_drag_paints_a_run_of_cells_and_undoes_as_one(self):

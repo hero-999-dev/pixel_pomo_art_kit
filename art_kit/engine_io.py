@@ -47,6 +47,18 @@ def gen_objects():
 SPECIES = ["gul", "papatya", "lale", "kaktus", "kaktusf", "kaktusd",
            "kasimpati", "menekse", "nilufer", "orkide", "begonya", "kamelya"]
 
+# The forest that surrounds the garden (#v34.8). Not flowers: these are raw
+# pixel art with no letter palette and no rim pass — the engine draws them
+# exactly as painted — so they ride the same path the rose already uses for
+# raw cells. `(kind, how many the engine loads)`.
+FOREST = [("tree", 20), ("bush", 10), ("rock", 5)]
+FOREST_KINDS = [kind for kind, _ in FOREST]
+
+
+def is_forest(species):
+    """A forest prop rather than a flower — different naming, no palette."""
+    return species in FOREST_KINDS
+
 
 def _palette_for(species):
     g = gen_objects()
@@ -89,8 +101,43 @@ def import_flower(species, model):
                    palette=palette)
 
 
+def import_forest_prop(kind, index):
+    """One shipped forest prop as an editable drawing (#v34.8).
+
+    Raw pixels, like the rose: the generator composes these directly rather
+    than from letters, and the engine adds no rim, so what is painted here is
+    exactly what the garden draws. Trees are 32/48/64 cells square depending on
+    how many tiles they occupy; bushes and rocks are 16.
+    """
+    g = gen_objects()
+    maker = {"tree": g._tree_variant, "bush": g._bush_variant, "rock": g._rock_variant}[kind]
+    grid = maker(index + 1)  # the generators are 1-based
+    cells = [[px if px[3] else None for px in row] for row in grid]
+    return Drawing(name=f"{kind}_{index:02d}", species=kind, model=index, cells=cells,
+                   palette=_forest_palette())
+
+
+def forest_canvas(kind, index):
+    """The cell size a forest prop must be, read from the generator rather than
+    hardcoded — a tree's canvas IS its size in the garden (16px per tile)."""
+    g = gen_objects()
+    if kind != "tree":
+        return 16
+    return g.TREE_TILES[index % len(g.TREE_TILES)] * g.TREE_PX_PER_TILE
+
+
+def _forest_palette():
+    """Forest props carry no letter palette — the swatches would be a lie. This
+    is a neutral stand-in so the editor has something to show; painting uses
+    picked colours, which is what these are made of."""
+    return Palette(d="23602C", m="327A3B", l="4E9B4A", centre="4A3421", rim="17401F",
+                   plant_rim="17401F")
+
+
 def import_all():
-    return [import_flower(s, v) for s in SPECIES for v in (0, 1)]
+    flowers = [import_flower(s, v) for s in SPECIES for v in (0, 1)]
+    forest = [import_forest_prop(k, i) for k, n in FOREST for i in range(n)]
+    return flowers + forest
 
 
 def render(drawing):
@@ -157,6 +204,11 @@ def engine_sprite_names(drawing):
     """Basenames export_engine_sprite will write: the model's own sprite, plus
     the bare thumbnail the shop uses when it's model 0. One definition so the
     confirmation dialog and the writer can never name different files."""
+    if is_forest(drawing.species):
+        # tree_07.png — the engine loads forest props by their own filename,
+        # with no `flower_` prefix and no bare thumbnail (#v17's "only shadows"
+        # bug was exactly that prefix being applied to a tree).
+        return [f"{drawing.species}_{drawing.model:02d}.png"]
     names = [f"flower_{drawing.species}_{drawing.model}.png"]
     if drawing.model == 0:
         names.append(f"flower_{drawing.species}.png")
@@ -165,11 +217,20 @@ def engine_sprite_names(drawing):
 
 def export_engine_sprite(drawing, out_dir):
     """Write the sprite(s) the garden loads: ×16, RGBA, engine naming."""
-    if drawing.width != 16:
-        raise ExportRefused(
-            f"engine sprites are 16 cells wide, this drawing is {drawing.width}")
     if not drawing.species:
         raise ExportRefused("give the drawing a species before exporting it")
+    if is_forest(drawing.species):
+        # A tree's canvas size IS its size in the garden: the engine reads the
+        # tile count from its own table and the sprite is generated at 16px per
+        # tile, so an off-size grid would render at the wrong pixel density.
+        want = forest_canvas(drawing.species, drawing.model)
+        if drawing.width != want or drawing.height != want:
+            raise ExportRefused(
+                f"{drawing.species}_{drawing.model:02d} must be {want}x{want} cells, "
+                f"this drawing is {drawing.width}x{drawing.height}")
+    elif drawing.width != 16:
+        raise ExportRefused(
+            f"engine sprites are 16 cells wide, this drawing is {drawing.width}")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     big = _scaled(drawing, 16)
