@@ -6,6 +6,7 @@ second source of truth that drifts the first time either side is touched, and
 the whole point of this app is that its output IS the shipped sprite.
 """
 import functools
+import io
 import importlib.util
 import os
 import sys
@@ -263,3 +264,125 @@ def export_grid_literal(drawing):
         lines.append('    "' + "".join(c if c else "." for c in row) + '",')
     lines.append("],")
     return "\n".join(lines)
+
+
+# ---- bringing outside art in (#v34.10) --------------------------------------
+
+class ImportRefused(Exception):
+    """Raised instead of importing a file that would come out wrong."""
+
+
+#: Alpha at or above this counts as an opaque pixel; below it becomes empty.
+#: The engine composites hard-edged sprites — a half-transparent pixel has no
+#: meaning there — so anti-aliased edges have to be decided one way or another
+#: at import rather than shipped as fringe.
+ALPHA_CUTOFF = 128
+
+
+def import_png(path, cells=None, alpha_cutoff=ALPHA_CUTOFF):
+    """An outside PNG as an editable drawing, plus a note on what was changed.
+
+    Lets an artist work in Procreate, Aseprite, Photoshop — anything — and
+    bring the result in without it quietly going wrong in the engine. Three
+    things get fixed here, because each is invisible until it ships:
+
+    * **Colour profile.** Procreate paints in Display P3 by default. The same
+      "green" carries different RGB numbers in a P3 file than in an sRGB one,
+      so the art drifts against every colour already in the game. Any embedded
+      profile is converted to sRGB.
+    * **Anti-aliasing.** Normal brushes feather their edges. The engine draws
+      hard pixels, so a feathered edge becomes a fringe of half-ghosts. Alpha
+      is snapped to fully on or fully off at [alpha_cutoff].
+    * **Scale.** Art exported at 16x (or any whole multiple) is brought back
+      down by nearest-neighbour, which is lossless for pixel art — resampling
+      it smoothly would blur it into mush.
+
+    [cells] forces the grid size; by default the PNG's own size is used, or the
+    largest whole-number downscale of it that still divides evenly.
+
+    Returns `(drawing, notes)` — `notes` is a list of plain sentences naming
+    every change, so the artist is told rather than surprised.
+    """
+    try:
+        from PIL import Image, ImageCms
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise ImportRefused(
+            "importing a PNG needs Pillow (pip install Pillow)") from exc
+
+    path = Path(path)
+    notes = []
+    img = Image.open(path)
+
+    # 1) colour profile -> sRGB
+    icc = img.info.get("icc_profile")
+    if icc:
+        try:
+            src = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+            name = ImageCms.getProfileDescription(src).strip()
+            img = ImageCms.profileToProfile(
+                img.convert("RGBA"), src, ImageCms.createProfile("sRGB"),
+                outputMode="RGBA")
+            if "srgb" not in name.lower():
+                notes.append(f"converted {name} to sRGB")
+        except Exception:  # a broken profile is not worth failing the import
+            notes.append("left an unreadable colour profile alone")
+    img = img.convert("RGBA")
+
+    w, h = img.size
+    if w == 0 or h == 0:
+        raise ImportRefused("that image is empty")
+
+    # 2) scale down to the grid
+    target = cells or _guess_cells(w, h)
+    if target != (w, h):
+        if w % target[0] or h % target[1]:
+            raise ImportRefused(
+                f"{w}x{h} does not divide evenly into {target[0]}x{target[1]} cells — "
+                f"resize it in your drawing app first, or pick a size that fits")
+        img = img.resize(target, Image.NEAREST)
+        notes.append(f"scaled {w}x{h} down to {target[0]}x{target[1]} (nearest, lossless)")
+
+    # 3) flatten anti-aliasing
+    cols, rows = target
+    px = img.load()
+    cells_out = []
+    softened = 0
+    for r in range(rows):
+        row = []
+        for c in range(cols):
+            red, green, blue, alpha = px[c, r]
+            if alpha and alpha < 255:
+                softened += 1
+            row.append((red, green, blue, 255) if alpha >= alpha_cutoff else None)
+        cells_out.append(row)
+    if softened:
+        notes.append(f"squared off {softened} part-transparent pixel(s) from anti-aliasing")
+
+    if not any(cell for row in cells_out for cell in row):
+        raise ImportRefused(
+            "everything in that image was too faint to keep — it may be anti-aliased "
+            "to near-nothing, or saved with no opaque pixels")
+
+    return Drawing(name=path.stem, species=None, model=0, cells=cells_out,
+                   palette=_forest_palette()), notes
+
+
+#: Grid sizes the engine actually uses: flowers/bushes/rocks are 16, trees are
+#: 2/3/4 tiles at 16px each.
+KNOWN_CELLS = (16, 32, 48, 64)
+
+
+def _guess_cells(w, h):
+    """The grid an exported PNG most likely came from.
+
+    ONLY x16 is treated as an export scale, because that is the only one the
+    engine uses: a 1024x1024 file is a 64-cell tree. Guessing at x2/x4/x8 as
+    well looked clever and was destructive — a 32x32 drawing (a real 2-tile
+    tree size) got "recognised" as a 16-cell drawing exported at x2 and thrown
+    away half its resolution. Anything else is taken at face value.
+    """
+    if w % 16 == 0 and h % 16 == 0:
+        cw, ch = w // 16, h // 16
+        if cw in KNOWN_CELLS and ch in KNOWN_CELLS:
+            return (cw, ch)
+    return (w, h)
