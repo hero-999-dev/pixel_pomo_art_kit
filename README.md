@@ -10,12 +10,18 @@ game's own compositing code, not a reimplementation of it.
 
 ## Running it
 
-**Just want to draw?** Download `PixelPomoArtKit-windows.zip` from the latest
-[Release](../../releases/latest), unzip it, and run `PixelPomoArtKit.exe` — no
-Python needed, and it carries its own copy of the sprite generator so it works
-on any Windows machine. (The exe is unsigned, so Windows SmartScreen may say
-"Windows protected your PC" the first time: *More info -> Run anyway*.) It keeps
-`library/` and `exports/` folders next to the exe.
+**Just want to draw?** Grab the build for your machine from the latest
+[Release](../../releases/latest) — no Python needed either way, and both carry
+their own copy of the sprite generator, so they work with no game checkout at
+all. Each keeps its `library/` and `exports/` folders next to itself.
+
+| | file | first run |
+|---|---|---|
+| **Windows** | `PixelPomoArtKit-windows.zip` → `PixelPomoArtKit.exe` | unsigned, so SmartScreen says "Windows protected your PC": **More info → Run anyway** |
+| **macOS** | `PixelPomoArtKit-macos.zip` → `PixelPomoArtKit.app` | unsigned, so Gatekeeper says it "cannot be opened": **right-click the app → Open → Open**. Double-clicking will not offer that choice — you have to right-click the first time. |
+
+Both are built by CI from the same commit, so the two platforms never drift
+apart.
 
 To run from source instead, from the repository root:
 

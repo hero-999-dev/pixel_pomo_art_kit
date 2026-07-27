@@ -4,6 +4,37 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.1.0 — Mac build, and releases come from CI
+**Date:** 2026-07-28
+
+Three things had been sitting committed but unreleased since v2.0.0 on 25 July:
+**Import PNG**, the drawable forest (20 trees, 10 bushes, 5 rocks), and the
+relative path fix. They ship here.
+
+**The Art Kit had no CI.** Every release so far was built by hand on one Windows
+machine, which is also why there was never a Mac build: PyInstaller cannot
+cross-compile, so a macOS binary can only be produced on a macOS runner. There
+is no local workaround.
+
+`.github/workflows/release.yml` now builds on `windows-latest` and
+`macos-latest` from the same commit and publishes both zips into one release.
+The spec grew a `BUNDLE` step guarded by `sys.platform == 'darwin'`, because on
+macOS a bare PyInstaller binary opens a Terminal window beside the app and
+Finder will not treat it as an application at all — it needs a `.app`.
+
+**The one awkward part is deliberate and documented.** The spec bundles the
+game's `gen_objects.py` into the binary, so the build needs a checkout of the
+game repo as a sibling — and that repo is private. GitHub's built-in token
+cannot read a second private repo, so the workflow takes a PAT from the secret
+`APP_REPO_TOKEN` (fine-grained, read-only Contents on `hero-999-dev/pixel_pomo`).
+If that token expires, releases stop; there is no silent-degradation path.
+
+# Change Log — Pixel Pomo Art Kit
+
+What was built, round by round. Newest first.
+
+---
+
 ## v4 — the artist's window, redesigned on real feedback (2026-07-25)
 
 **Date:** 2026-07-25

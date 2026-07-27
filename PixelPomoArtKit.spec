@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+import sys
 
 # The game's sprite generator is bundled into the .exe so the packaged app
 # still works on a machine with no game checkout. Resolved RELATIVE to this
@@ -48,3 +49,20 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+# macOS wants a .app bundle, not a bare unix executable — double-clicking the
+# raw binary opens a Terminal window alongside the app, and Finder will not show
+# it as an application at all. BUNDLE is a no-op on other platforms, but it is
+# guarded anyway so a Windows build never carries Mac-only metadata (#v2.1.0).
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        exe,
+        name='PixelPomoArtKit.app',
+        icon=None,
+        bundle_identifier='com.pixelpomo.artkit',
+        info_plist={
+            'NSHighResolutionCapable': True,
+            # Tk on macOS needs this or the window opens behind everything else
+            'LSBackgroundOnly': False,
+        },
+    )

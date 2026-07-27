@@ -1,0 +1,113 @@
+# Build the Art Kit for Windows AND macOS, and publish both to one release.
+#
+# macOS is the whole reason this exists: PyInstaller cannot cross-compile, so a
+# Mac build can only be produced on a Mac runner. Windows is built here too so
+# both binaries in a release come from the same commit and the same process,
+# rather than one from CI and one from whichever machine was handy.
+#
+# NOTE: this workflow checks out a SECOND, private repository — the game, for
+# `flutter/tools/gen_objects.py`, which the spec bundles into the binary so the
+# packaged kit works with no game checkout. The built-in GITHUB_TOKEN cannot
+# read another private repo, so it needs a PAT in the secret APP_REPO_TOKEN
+# (fine-grained, read-only Contents on hero-999-dev/pixel_pomo).
+name: Release Art Kit
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v2.1.0)'
+        required: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: PixelPomoArtKit-windows
+          - os: macos-latest
+            artifact: PixelPomoArtKit-macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      # The spec resolves gen_objects.py RELATIVE to itself (ArtKit/ -> ../App),
+      # so the two checkouts have to land as siblings under one parent.
+      - name: Check out the art kit
+        uses: actions/checkout@v4
+        with:
+          path: ArtKit
+
+      - name: Check out the game (for gen_objects.py)
+        uses: actions/checkout@v4
+        with:
+          repository: hero-999-dev/pixel_pomo
+          token: ${{ secrets.APP_REPO_TOKEN }}
+          path: App
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: python -m pip install --upgrade pip pyinstaller Pillow
+
+      # The gate: the kit renders through the game's own compositing code, so a
+      # generator change that breaks it must stop the release, not ship in it.
+      - name: Tests
+        working-directory: ArtKit
+        run: python -m unittest discover -s tests
+
+      - name: Build
+        working-directory: ArtKit
+        run: python -m PyInstaller PixelPomoArtKit.spec --noconfirm --clean
+
+      # Zip on the runner rather than letting upload-artifact do it, so the
+      # release asset is one file the artist can double-click, and so the macOS
+      # .app keeps its bundle structure and executable bit (a plain upload of a
+      # .app directory loses both).
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        working-directory: ArtKit
+        run: |
+          mkdir stage
+          copy dist\PixelPomoArtKit.exe stage\
+          copy OKUBENI.txt stage\
+          powershell Compress-Archive -Path stage\* -DestinationPath ${{ matrix.artifact }}.zip -Force
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        working-directory: ArtKit
+        run: |
+          mkdir stage
+          cp -R dist/PixelPomoArtKit.app stage/
+          cp OKUBENI.txt stage/
+          cd stage && zip -qry ../${{ matrix.artifact }}.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ArtKit/${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - name: Publish both binaries to one release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --title "Pixel Pomo Art Kit $TAG" --generate-notes \
+            || echo "release exists, uploading into it"
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            out/*/*.zip
