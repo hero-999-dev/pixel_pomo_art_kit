@@ -32,6 +32,8 @@ jobs:
           - os: macos-latest
             artifact: PixelPomoArtKit-macos
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write   # each job publishes its own binary to the release
     steps:
       # The spec resolves gen_objects.py RELATIVE to itself (ArtKit/ -> ../App),
       # so the two checkouts have to land as siblings under one parent.
@@ -96,28 +98,25 @@ jobs:
           cp OKUBENI.txt stage/
           cd stage && zip -qry ../${{ matrix.artifact }}.zip .
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ArtKit/${{ matrix.artifact }}.zip
-          if-no-files-found: error
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: out
-      - name: Publish both binaries to one release
+      # Straight to the release, NOT via upload-artifact (#v2.1.0). Both builds
+      # succeeded on the first real run and then died on the upload step with
+      # "Artifact storage quota has been hit" — the account's artifact storage
+      # is shared with the game repo, which publishes an APK on every push.
+      # Release assets are separate storage and do not count against it, so
+      # skipping the artifact round-trip removes a whole class of failure
+      # rather than waiting 6-12 hours for a quota recalculation.
+      #
+      # Both platform jobs race to create the tag; whichever loses just uploads
+      # into the release the other made.
+      - name: Publish to the release
+        shell: bash
+        working-directory: ArtKit
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --title "Pixel Pomo Art Kit $TAG" --generate-notes \
-            || echo "release exists, uploading into it"
+            || echo "release already exists — uploading into it"
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            out/*/*.zip
+            "${{ matrix.artifact }}.zip"
