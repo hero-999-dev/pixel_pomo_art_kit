@@ -143,25 +143,41 @@ class RenderTest(unittest.TestCase):
         self.assertTrue(all(px == (0, 0, 0, 0) for row in grid for px in row))
 
 
+def _pixels(path):
+    """A PNG's decoded RGBA pixels.
+
+    Compared instead of the raw file bytes (#v2.1.0). The claim these tests make
+    is "what the kit writes IS the shipped sprite", and that is about pixels —
+    but a PNG's bytes also carry zlib's output, which is not portable. The macOS
+    runner's zlib compresses the same pixels differently from Windows', so a
+    byte comparison failed on CI for two sprites whose images were identical.
+    A test that fails on the operating system rather than on the artwork is
+    testing the wrong thing.
+    """
+    from PIL import Image
+    with Image.open(path) as im:
+        return im.convert("RGBA").tobytes(), im.size
+
+
 class ExportTest(unittest.TestCase):
     ASSETS = Path(str(_APP / "flutter" / "assets" / "objects"))
 
-    def test_an_untouched_flower_exports_byte_for_byte_as_shipped(self):
+    def test_an_untouched_flower_exports_pixel_for_pixel_as_shipped(self):
         for species, model in (("lale", 0), ("papatya", 1), ("gul", 0)):
             with self.subTest(species=species, model=model):
-                shipped = (self.ASSETS / f"flower_{species}_{model}.png").read_bytes()
+                shipped = _pixels(self.ASSETS / f"flower_{species}_{model}.png")
                 with tempfile.TemporaryDirectory() as tmp:
                     written = engine_io.export_engine_sprite(
                         engine_io.import_flower(species, model), Path(tmp))
-                    mine = (Path(tmp) / f"flower_{species}_{model}.png").read_bytes()
+                    mine = _pixels(Path(tmp) / f"flower_{species}_{model}.png")
                 self.assertEqual(mine, shipped)
                 self.assertTrue(written)
 
     def test_model_zero_also_writes_the_shop_thumbnail(self):
         with tempfile.TemporaryDirectory() as tmp:
             engine_io.export_engine_sprite(engine_io.import_flower("lale", 0), Path(tmp))
-            thumb = (Path(tmp) / "flower_lale.png").read_bytes()
-            shipped = (self.ASSETS / "flower_lale.png").read_bytes()
+            thumb = _pixels(Path(tmp) / "flower_lale.png")
+            shipped = _pixels(self.ASSETS / "flower_lale.png")
         self.assertEqual(thumb, shipped)
 
     def test_model_one_does_not_overwrite_the_thumbnail(self):
@@ -282,8 +298,9 @@ class ForestPropsAreEditable(unittest.TestCase):
         self.assertEqual(engine_io.engine_sprite_names(engine_io.import_forest_prop("rock", 2)),
                          ["rock_02.png"])
 
-    def test_an_untouched_prop_exports_byte_for_byte_as_shipped(self):
+    def test_an_untouched_prop_exports_pixel_for_pixel_as_shipped(self):
         # The whole point of the kit: what it writes IS the shipped sprite.
+        # Pixels, not file bytes — see _pixels for why (#v2.1.0).
         shipped = engine_io.APP_DIR / "flutter" / "assets" / "objects"
         with tempfile.TemporaryDirectory() as tmp:
             for name in ("tree_00", "tree_03", "tree_12", "bush_04", "rock_01"):
@@ -291,7 +308,7 @@ class ForestPropsAreEditable(unittest.TestCase):
                     kind, idx = name.split("_")
                     d = engine_io.import_forest_prop(kind, int(idx))
                     out = engine_io.export_engine_sprite(d, tmp)[0]
-                    self.assertEqual(out.read_bytes(), (shipped / f"{name}.png").read_bytes())
+                    self.assertEqual(_pixels(out), _pixels(shipped / f"{name}.png"))
 
     def test_an_off_size_tree_is_refused_rather_than_written_wrong(self):
         d = engine_io.import_forest_prop("tree", 0)          # a 2-tile tree, 32 cells

@@ -40,12 +40,22 @@ jobs:
         with:
           path: ArtKit
 
+      # SPARSE, and not just to save time. A full checkout fails outright on
+      # Windows: the game repo carries feedback screenshots whose names are the
+      # feedback itself ("2 ve 3 numarali cicekler cok güzel en soldaki
+      # olmamis..."), which blows past the 260-character path limit and aborts
+      # the clone with "Filename too long". The build needs exactly two paths
+      # out of that repo, so it asks for exactly two.
       - name: Check out the game (for gen_objects.py)
         uses: actions/checkout@v4
         with:
           repository: hero-999-dev/pixel_pomo
           token: ${{ secrets.APP_REPO_TOKEN }}
           path: App
+          sparse-checkout: |
+            flutter/tools
+            flutter/assets/objects
+          sparse-checkout-cone-mode: true
 
       - uses: actions/setup-python@v5
         with:
