@@ -137,13 +137,22 @@ class AppSmokeTest(unittest.TestCase):
         self.assertIn("Documents", str(base))
 
     def test_a_frozen_windows_build_still_writes_beside_the_exe(self):
+        # Built with the HOST's path separators, and compared against pathlib
+        # rather than a hard-coded folder name. The first version hard-coded
+        # r"D:\kit\PixelPomoArtKit.exe" and asserted the parent was "kit" —
+        # which passes on Windows and fails on the macOS CI runner, where
+        # backslashes are ordinary filename characters, so that whole string is
+        # ONE component and `.parent` is the working directory. Same class of
+        # mistake as the byte-comparison tests this release also fixed: the
+        # assertion was about the host, not about the app.
         import sys as _sys
         from unittest import mock
+        exe = str(Path("kit") / "PixelPomoArtKit.exe")
         with mock.patch.object(_sys, "frozen", True, create=True), \
                 mock.patch.object(_sys, "platform", "win32"), \
-                mock.patch.object(_sys, "executable", r"D:\kit\PixelPomoArtKit.exe"):
+                mock.patch.object(_sys, "executable", exe):
             base = app.base_dir()
-        self.assertEqual(Path(str(base)).name, "kit")
+        self.assertEqual(base, Path(exe).resolve().parent)
 
     def test_the_export_dialog_does_not_default_into_the_game_assets(self):
         # The game's asset tree is read-only to this app; defaulting the picker
