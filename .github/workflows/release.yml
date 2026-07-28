@@ -29,8 +29,17 @@ jobs:
         include:
           - os: windows-latest
             artifact: PixelPomoArtKit-windows
+          # TWO Mac builds, not one. PyInstaller cannot cross-compile between
+          # architectures any more than it can between operating systems, so an
+          # Intel Mac needs a binary produced on an Intel runner. macos-latest
+          # is Apple Silicon (the runner image is macos-26-arm64), which is why
+          # the first Mac release would not have opened on an Intel machine at
+          # all — and the artist has no way to tell from the filename, hence the
+          # explicit names.
           - os: macos-latest
-            artifact: PixelPomoArtKit-macos
+            artifact: PixelPomoArtKit-macos-apple-silicon
+          - os: macos-15-intel
+            artifact: PixelPomoArtKit-macos-intel
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write   # each job publishes its own binary to the release
