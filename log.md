@@ -4,6 +4,39 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.2.0 — everything the artist reads is English
+**Date:** 2026-07-28
+
+"Sanatcilar türkce bilmiyor." The kit is handed to artists who do not read
+Turkish, and two things still did.
+
+**Flower names.** The library list, the window title and every row showed
+`gul_0`, `papatya_1`, `kasimpati_0`. Those ids cannot change: the engine loads
+`flower_gul_0.png` and saved gardens reference the species by that name, so
+renaming them would break every shipped sprite and every existing garden.
+
+The ids stay; the LABEL is now English. `DISPLAY_NAMES` +
+`display_name(species, model)` give "Rose 1", "Daisy 2", "Chrysanthemum 1",
+"Tree 01". Copied from the game's own catalogue (`Flowers.all` in logic.dart)
+rather than invented, so the kit and the shop call the same flower the same
+thing in front of the same person.
+
+Verified first that export filenames come from `species` + `model` and never
+from the label — otherwise this rename would have quietly changed what the kit
+writes into the game.
+
+**The guides.** `OKUBENI.txt` / `OKUBENI-MAC.txt` were Turkish-first with an
+English section underneath, and even the filename was Turkish. Replaced by
+`READ-ME-FIRST.txt` and `READ-ME-FIRST-MAC.txt`, English only — a file the
+reader cannot read the *name* of is a bad start.
+
+The app's own code had no Turkish in it at all; checked rather than assumed.
+
+**Tests:** 90 → 91. The new one walks every species and forest kind and fails
+if one has no English label, has a label equal to its id, or produces a name
+carrying Turkish characters — so adding a species without a label puts
+"kasimpati" back in front of the artist and the suite says so.
+
 ## v2.1.1 — macOS setup guide, and drawings kept out of the app bundle
 **Date:** 2026-07-28
 

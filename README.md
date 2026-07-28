@@ -1,7 +1,8 @@
 # Pixel Pomo Art Kit
 
-A Windows desktop pixel-art editor for drawing and editing the flower sprites
-that grow in Pixel Pomo's garden. It is not a general-purpose pixel editor:
+A desktop pixel-art editor (Windows and macOS) for drawing and editing the
+sprites that grow in Pixel Pomo's garden — flowers and the surrounding forest.
+It is not a general-purpose pixel editor:
 the document format, the palette, and the render path are all borrowed
 directly from the game's own sprite generator (`gen_objects.py`), so a flower
 drawn or edited here comes back out **byte-for-byte identical** to the PNG the
@@ -18,7 +19,7 @@ all. Each keeps its `library/` and `exports/` folders next to itself.
 | | file | notes |
 |---|---|---|
 | **Windows** | `PixelPomoArtKit-windows.zip` → `PixelPomoArtKit.exe` | unsigned, so SmartScreen says "Windows protected your PC": **More info → Run anyway**. `library/` and `exports/` sit next to the .exe. |
-| **macOS** | `PixelPomoArtKit-macos.zip` → `PixelPomoArtKit.app` | **Apple Silicon only** — see below. Each zip carries its own step-by-step guide (`OKUBENI.txt` / `OKUBENI-MAC.txt`). |
+| **macOS** | `PixelPomoArtKit-macos.zip` → `PixelPomoArtKit.app` | **Apple Silicon only** — see below. Each zip carries its own step-by-step guide (`READ-ME-FIRST.txt` / `READ-ME-FIRST-MAC.txt`). |
 
 Both are built by CI from the same commit, so the two platforms never drift
 apart.

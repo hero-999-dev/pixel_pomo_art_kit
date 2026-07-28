@@ -48,6 +48,42 @@ def gen_objects():
 SPECIES = ["gul", "papatya", "lale", "kaktus", "kaktusf", "kaktusd",
            "kasimpati", "menekse", "nilufer", "orkide", "begonya", "kamelya"]
 
+# What the ARTIST sees. The ids above are Turkish because the engine loads
+# `flower_gul_0.png` and saved gardens reference them by that name — renaming
+# them would break every shipped sprite and every save. The artists do not read
+# Turkish, so the library list, the window title and the species picker show
+# these instead (#v2.2.0).
+#
+# Copied from the game's own catalogue (`Flowers.all` in logic.dart), not
+# invented here, so the kit and the shop call the same flower the same thing.
+# `kaktus` is the pre-#v26 cactus, kept because its art still generates; the
+# game maps it to `kaktusd` for saves.
+DISPLAY_NAMES = {
+    "gul": "Rose",
+    "papatya": "Daisy",
+    "lale": "Tulip",
+    "kaktus": "Cactus (old)",
+    "kaktusf": "Flower Cactus",
+    "kaktusd": "Desert Cactus",
+    "kasimpati": "Chrysanthemum",
+    "menekse": "Violet",
+    "nilufer": "Water Lily",
+    "orkide": "Orchid",
+    "begonya": "Begonia",
+    "kamelya": "Camellia",
+    "tree": "Tree",
+    "bush": "Bush",
+    "rock": "Rock",
+}
+
+
+def display_name(species, model):
+    """The label the artist sees for one drawing — never a filename."""
+    base = DISPLAY_NAMES.get(species, species)
+    if is_forest(species):
+        return f"{base} {model + 1:02d}"
+    return f"{base} {model + 1}"
+
 # The forest that surrounds the garden (#v34.8). Not flowers: these are raw
 # pixel art with no letter palette and no rim pass — the engine draws them
 # exactly as painted — so they ride the same path the rose already uses for
@@ -84,7 +120,7 @@ def import_flower(species, model):
     """One shipped model as an editable drawing."""
     g = gen_objects()
     palette = _palette_for(species)
-    name = f"{species}_{model}"
+    name = display_name(species, model)
     if species == "gul":
         grid = g.rose_variant(model)  # already outlined and composited
         cells = [[px if px[3] else None for px in row] for row in grid]
@@ -114,7 +150,7 @@ def import_forest_prop(kind, index):
     maker = {"tree": g._tree_variant, "bush": g._bush_variant, "rock": g._rock_variant}[kind]
     grid = maker(index + 1)  # the generators are 1-based
     cells = [[px if px[3] else None for px in row] for row in grid]
-    return Drawing(name=f"{kind}_{index:02d}", species=kind, model=index, cells=cells,
+    return Drawing(name=display_name(kind, index), species=kind, model=index, cells=cells,
                    palette=_forest_palette())
 
 

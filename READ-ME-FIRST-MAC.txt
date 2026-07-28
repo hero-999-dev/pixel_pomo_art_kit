@@ -1,0 +1,108 @@
+PIXEL POMO ART KIT — macOS SETUP (step by step)
+================================================
+
+CHECK THIS FIRST
+----------------
+This build runs on APPLE SILICON only (M1, M2, M3, M4...).
+It will NOT open on an Intel Mac.
+
+To check:  Apple menu (top left)  ->  "About This Mac"
+    "Chip: Apple M..."      ->  good, carry on
+    "Processor: Intel..."   ->  this file will not run for you.
+                                Ask the developer for an Intel build —
+                                it can be added to the same download page.
+
+
+STEP 1 — UNZIP
+--------------
+Double-click PixelPomoArtKit-macos.zip.
+You get PixelPomoArtKit.app.
+
+
+STEP 2 — MOVE THE APP  (do not skip this)
+-----------------------------------------
+Drag PixelPomoArtKit.app from Downloads into your Applications folder.
+
+Why: macOS runs unsigned apps launched from Downloads out of a randomised,
+read-only copy of themselves. The app misbehaves from there. Moving it out
+of Downloads stops that.
+
+
+STEP 3 — FIRST LAUNCH
+---------------------
+The app is unsigned, so macOS blocks it the first time. This is expected.
+Two ways — try A first:
+
+  A) RIGHT-CLICK METHOD   (macOS 14 and earlier)
+     - RIGHT-CLICK PixelPomoArtKit.app (or Control-click it)
+     - Choose "Open" from the menu
+     - In the warning that appears, click "Open" again
+     IMPORTANT: double-clicking does NOT offer this choice.
+     You must right-click the first time.
+
+  B) SETTINGS METHOD   (macOS 15 / Sequoia and later — if A has no "Open")
+     - Double-click the app once, then dismiss the warning
+     - Apple menu -> "System Settings"
+     - "Privacy & Security" in the sidebar
+     - Scroll DOWN to the "Security" section
+     - You will see a line like:
+         "PixelPomoArtKit.app was blocked to protect your Mac"
+     - Click "Open Anyway"
+     - Confirm with your password or Touch ID
+     - One more warning appears -> click "Open"
+
+  C) IF NEITHER WORKS — TERMINAL   (last resort)
+     - Spotlight (Cmd + Space), type "Terminal", press Enter
+     - Paste this and press Enter:
+
+         xattr -dr com.apple.quarantine /Applications/PixelPomoArtKit.app
+
+     - Then open the app normally by double-clicking.
+
+You only do this on the FIRST launch. After that, double-click as usual.
+
+
+STEP 4 — WHERE YOUR DRAWINGS LIVE
+---------------------------------
+On first launch the app creates:
+
+    Documents / PixelPomoArtKit /
+        library/   ->  your drawings. DO NOT DELETE.
+        exports/   ->  sprites you export
+
+In Documents, NOT next to the app. That is deliberate: when a new version
+arrives and you drag it over the old app, your drawings are untouched.
+
+Back up the library folder now and then — copying it somewhere is enough.
+
+
+CONTROLS
+--------
+  Left click       draw (one click, one square)
+  Right click      eyedropper — picks up the colour under the cursor
+  Drag             continuous line
+  f                fill bucket        e   eraser        b   brush
+  Cmd+Z            undo               Cmd+Shift+Z   redo
+  Two-finger scroll / + -   zoom in and out
+  Colours          panel at the bottom right:
+                   top strip = hue, square below = light / dark
+
+
+THE THREE PANES
+---------------
+  Left    your drawings. Click one to open it.
+          "+ NEW DRAWING" starts a blank one.
+          The  menu on each row: Duplicate, Export, Rename, Species, Size, Delete.
+  Middle  the canvas, plus two live previews — one at real size, one at a
+          "squint test" distance, both drawn through the game's own code.
+  Right   tools and colours.
+
+
+SENDING YOUR WORK BACK
+----------------------
+  Best:   send the .json file from Documents/PixelPomoArtKit/library/.
+          That IS the drawing — nothing is lost.
+  Or:      menu -> "Export PNG..." and send the image.
+
+  Palettes, letter grids, engine settings — none of that is your job.
+  You draw and send it; the developer converts it.

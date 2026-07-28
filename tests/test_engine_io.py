@@ -269,9 +269,30 @@ class ForestPropsAreEditable(unittest.TestCase):
     """#v34.8 — the artist asked to draw the forest, not just the flowers."""
 
     def test_the_library_offers_every_prop_the_engine_loads(self):
-        names = {d.name for d in engine_io.import_all() if engine_io.is_forest(d.species)}
-        expected = {f"{kind}_{i:02d}" for kind, n in engine_io.FOREST for i in range(n)}
-        self.assertEqual(names, expected)
+        # Identified by species+model, not by the label. The label is what the
+        # ARTIST reads and is English now (#v2.2.0); the engine's identity for a
+        # prop is the pair that produces its filename, and that has not moved.
+        got = {(d.species, d.model)
+               for d in engine_io.import_all() if engine_io.is_forest(d.species)}
+        expected = {(kind, i) for kind, n in engine_io.FOREST for i in range(n)}
+        self.assertEqual(got, expected)
+
+    def test_every_prop_and_flower_has_an_english_label(self):
+        # The artists do not read Turkish, and the ids are Turkish because the
+        # engine loads `flower_gul_0.png`. A species added to SPECIES or FOREST
+        # without a DISPLAY_NAMES entry would silently fall back to its id and
+        # put "kasimpati" back in front of them.
+        for species in engine_io.SPECIES + engine_io.FOREST_KINDS:
+            with self.subTest(species=species):
+                self.assertIn(species, engine_io.DISPLAY_NAMES,
+                              f"{species} has no English label")
+                label = engine_io.DISPLAY_NAMES[species]
+                self.assertNotEqual(label, species)
+                self.assertTrue(label[0].isupper(), f"{label} is not title-case")
+        for d in engine_io.import_all():
+            with self.subTest(drawing=d.name):
+                self.assertFalse(any(ch in d.name for ch in "ğüşıöçĞÜŞİÖÇ"),
+                                 f"{d.name} still reads as Turkish")
 
     def test_a_tree_opens_at_the_size_it_occupies_in_the_garden(self):
         # A tree's canvas IS its size: the engine reads the tile count from its

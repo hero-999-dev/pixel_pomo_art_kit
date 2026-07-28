@@ -1,0 +1,58 @@
+PIXEL POMO ART KIT — HOW TO RUN (Windows)
+==========================================
+
+1) Double-click PixelPomoArtKit.exe. That is all.
+   No install, no Python, no internet.
+
+2) The first time, Windows shows a blue warning:
+   "Windows protected your PC".
+   That is normal — the file is unsigned. Click:
+       "More info"  ->  "Run anyway"
+
+3) The app creates two folders next to itself:
+       library\   ->  your drawings live here. DO NOT DELETE.
+       exports\   ->  sprites you export land here
+
+4) Back up the library\ folder now and then (copy-paste is enough).
+   The app also keeps a .bak of how each file looked when you opened it.
+
+
+CONTROLS
+--------
+  Left click       draw (one click, one square)
+  Right click      eyedropper — picks up the colour under the cursor
+  Drag             continuous line
+  f                fill bucket (paints the connected area)
+  e                eraser              b   brush
+  Ctrl+Z           undo                Ctrl+Y   redo
+  Mouse wheel      zoom in / out
+  Colours          panel at the bottom right:
+                   top strip  = hue
+                   square below = light / dark
+                   click or drag either one
+
+
+THE THREE PANES
+---------------
+  Left    your drawings. Click one to open it.
+          "+ NEW DRAWING" starts a blank one.
+          The  menu on each row: Duplicate, Export, Rename, Species, Size, Delete.
+  Middle  the canvas, plus two live previews — one at real size, one at a
+          "squint test" distance, both drawn through the game's own code.
+  Right   tools and colours.
+
+
+SENDING YOUR WORK BACK
+----------------------
+  Best:   send the .json file from the library\ folder.
+          That IS the drawing — nothing is lost.
+  Or:      menu -> "Export PNG..." and send the image.
+
+  Palettes, letter grids, engine settings — none of that is your job.
+  You draw and send it; the developer converts it.
+
+
+IF SOMETHING LOOKS WRONG
+------------------------
+  Every drawing is a plain text file in library\. It is safe to open, copy,
+  or send. Nothing you do in this app can damage the game.
