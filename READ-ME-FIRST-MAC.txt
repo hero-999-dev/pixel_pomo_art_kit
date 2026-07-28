@@ -1,21 +1,23 @@
 PIXEL POMO ART KIT — macOS SETUP (step by step)
 ================================================
 
-CHECK THIS FIRST
-----------------
-This build runs on APPLE SILICON only (M1, M2, M3, M4...).
-It will NOT open on an Intel Mac.
+STEP 0 — DOWNLOAD THE RIGHT ONE
+-------------------------------
+There are TWO Mac downloads. Picking the wrong one gives you an app that
+will not open, with an unhelpful error. Check which Mac you have:
 
-To check:  Apple menu (top left)  ->  "About This Mac"
-    "Chip: Apple M..."      ->  good, carry on
-    "Processor: Intel..."   ->  this file will not run for you.
-                                Ask the developer for an Intel build —
-                                it can be added to the same download page.
+    Apple menu (top left)  ->  "About This Mac"
+
+    "Chip: Apple M1 / M2 / M3 / M4..."  ->  PixelPomoArtKit-macos-apple-silicon.zip
+    "Processor: Intel Core..."          ->  PixelPomoArtKit-macos-intel.zip
+
+If you are not sure, Apple Silicon is the right guess for any Mac bought
+from late 2020 onwards.
 
 
 STEP 1 — UNZIP
 --------------
-Double-click PixelPomoArtKit-macos.zip.
+Double-click the .zip you downloaded.
 You get PixelPomoArtKit.app.
 
 
@@ -30,34 +32,41 @@ of Downloads stops that.
 
 STEP 3 — FIRST LAUNCH
 ---------------------
-The app is unsigned, so macOS blocks it the first time. This is expected.
-Two ways — try A first:
+The app is unsigned, so macOS blocks it the first time. This is expected and
+does not mean anything is wrong with it.
 
-  A) RIGHT-CLICK METHOD   (macOS 14 and earlier)
-     - RIGHT-CLICK PixelPomoArtKit.app (or Control-click it)
-     - Choose "Open" from the menu
-     - In the warning that appears, click "Open" again
-     IMPORTANT: double-clicking does NOT offer this choice.
-     You must right-click the first time.
+Which method you need depends on your macOS version. Check it first:
+    Apple menu -> "About This Mac" -> the version number
 
-  B) SETTINGS METHOD   (macOS 15 / Sequoia and later — if A has no "Open")
-     - Double-click the app once, then dismiss the warning
-     - Apple menu -> "System Settings"
-     - "Privacy & Security" in the sidebar
-     - Scroll DOWN to the "Security" section
-     - You will see a line like:
-         "PixelPomoArtKit.app was blocked to protect your Mac"
-     - Click "Open Anyway"
-     - Confirm with your password or Touch ID
-     - One more warning appears -> click "Open"
+  A) macOS 15 (Sequoia), macOS 26 (TAHOE) AND NEWER   <-- most people
+     Apple removed the old right-click shortcut in these versions, so
+     right-clicking will NOT help. Do this instead:
 
-  C) IF NEITHER WORKS — TERMINAL   (last resort)
-     - Spotlight (Cmd + Space), type "Terminal", press Enter
-     - Paste this and press Enter:
+     1. Double-click PixelPomoArtKit.app once.
+     2. A warning appears saying it cannot be opened. Click "Done".
+     3. Apple menu -> "System Settings"
+     4. Click "Privacy & Security" in the sidebar
+     5. Scroll DOWN to the "Security" section
+     6. You will see a line like:
+            "PixelPomoArtKit.app was blocked to protect your Mac"
+        Click the "Open Anyway" button next to it.
+     7. Confirm with your password or Touch ID.
+     8. One final warning appears -> click "Open".
+
+  B) macOS 14 (Sonoma) AND OLDER
+     1. RIGHT-CLICK PixelPomoArtKit.app (or hold Control and click it)
+     2. Choose "Open" from the menu
+     3. In the warning, click "Open" again
+     Note: plain double-clicking does NOT offer this choice. You have to
+     right-click the first time.
+
+  C) IF NEITHER WORKS — TERMINAL   (last resort, works on every version)
+     1. Spotlight (Cmd + Space), type "Terminal", press Enter
+     2. Paste this line and press Enter:
 
          xattr -dr com.apple.quarantine /Applications/PixelPomoArtKit.app
 
-     - Then open the app normally by double-clicking.
+     3. Then open the app normally by double-clicking.
 
 You only do this on the FIRST launch. After that, double-click as usual.
 

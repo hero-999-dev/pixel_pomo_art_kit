@@ -4,6 +4,31 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.3.0 — an Intel Mac build, and Tahoe-correct Gatekeeper steps
+**Date:** 2026-07-28
+
+**Two Mac downloads now.** PyInstaller cannot cross-compile between
+architectures any more than between operating systems, and `macos-latest` is
+Apple Silicon (`macos-26-arm64`) — so every Mac build before this one simply
+would not open on an Intel Mac, with no useful error. A second job on
+`macos-15-intel` produces the Intel binary; the runner images in the log confirm
+the split (`macos-26-arm64` vs `macos-15`), as do the sizes, 14.2 MB against
+15.6 MB.
+
+The assets are named for the machine rather than the platform —
+`PixelPomoArtKit-macos-apple-silicon.zip` and `PixelPomoArtKit-macos-intel.zip`
+— because nothing inside the app can warn someone who picked wrong.
+
+**The Gatekeeper instructions were wrong for the artist actually using them.**
+One of them is on **Tahoe (macOS 26)**, and the guide led with the right-click
+→ Open trick. Apple removed that in Sequoia (15); on Tahoe it does nothing at
+all, so the first thing the artist would try was guaranteed to fail.
+
+Reordered: System Settings → Privacy & Security → Open Anyway is now the
+primary route, labelled for macOS 15/26 and newer, with right-click kept below
+for Sonoma and older and the `xattr` command as a last resort for any version.
+The guide also opens with a "check which Mac you have" step before the download.
+
 ## v2.2.0 — everything the artist reads is English
 **Date:** 2026-07-28
 

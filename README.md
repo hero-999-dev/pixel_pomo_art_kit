@@ -18,35 +18,39 @@ all. Each keeps its `library/` and `exports/` folders next to itself.
 
 | | file | notes |
 |---|---|---|
-| **Windows** | `PixelPomoArtKit-windows.zip` → `PixelPomoArtKit.exe` | unsigned, so SmartScreen says "Windows protected your PC": **More info → Run anyway**. `library/` and `exports/` sit next to the .exe. |
-| **macOS** | `PixelPomoArtKit-macos.zip` → `PixelPomoArtKit.app` | **Apple Silicon only** — see below. Each zip carries its own step-by-step guide (`READ-ME-FIRST.txt` / `READ-ME-FIRST-MAC.txt`). |
+| **Windows** | `PixelPomoArtKit-windows.zip` | unsigned, so SmartScreen says "Windows protected your PC": **More info → Run anyway**. `library/` and `exports/` sit next to the .exe. |
+| **macOS, Apple Silicon** | `PixelPomoArtKit-macos-apple-silicon.zip` | M1/M2/M3/M4 — any Mac from late 2020 on |
+| **macOS, Intel** | `PixelPomoArtKit-macos-intel.zip` | older Intel Macs |
 
-Both are built by CI from the same commit, so the two platforms never drift
-apart.
+All three are built by CI from the same commit, so the platforms never drift
+apart. Each zip carries its own step-by-step guide inside
+(`READ-ME-FIRST.txt` / `READ-ME-FIRST-MAC.txt`).
 
 ### macOS, step by step
 
-**This build only runs on Apple Silicon (M1/M2/M3/M4).** It will not open on an
-Intel Mac.  → *About This Mac*: "Chip: Apple M…" is fine, "Processor: Intel…"
-is not — ask for an Intel build and it can be added to the same release.
+**Pick the right download first.**  → *About This Mac*: "Chip: Apple M…" wants
+the apple-silicon zip, "Processor: Intel…" wants the intel one. The wrong one
+fails to open with an unhelpful error, and nothing in the app itself can warn
+you — PyInstaller cannot cross-compile between architectures, so these are two
+genuinely different binaries.
 
-1. **Unzip** `PixelPomoArtKit-macos.zip`.
+1. **Unzip** the one you downloaded.
 
 2. **Drag `PixelPomoArtKit.app` into your Applications folder.** Don't skip
    this. macOS runs unsigned apps launched from `Downloads` out of a randomised
    read-only copy (*app translocation*), and the app misbehaves from there.
 
-3. **First launch only** — the app is unsigned, so macOS blocks it. Try **A**,
-   and if the menu item isn't there use **B**:
+3. **First launch only** — the app is unsigned, so macOS blocks it. Which route
+   you need depends on the macOS version:
 
-   - **A — right-click** the app → **Open** → **Open** again in the dialog.
-     Works on macOS 14 and earlier. *Double-clicking will not offer this
-     choice*; you have to right-click the first time.
-   - **B — macOS 15 (Sequoia) and later** removed that shortcut. Double-click
-     once and dismiss the warning, then  → **System Settings** → **Privacy &
-     Security** → scroll down to **Security** → *"PixelPomoArtKit.app was
-     blocked…"* → **Open Anyway** → confirm.
-   - **C — last resort**, in Terminal:
+   - **macOS 15 (Sequoia), macOS 26 (Tahoe) and newer** — Apple removed the
+     right-click shortcut, so it will not help. Double-click once, click
+     **Done** on the warning, then  → **System Settings** → **Privacy &
+     Security** → scroll to **Security** → *"PixelPomoArtKit.app was
+     blocked…"* → **Open Anyway** → confirm → **Open**.
+   - **macOS 14 (Sonoma) and older** — **right-click** the app → **Open** →
+     **Open** again. Plain double-clicking does not offer this choice.
+   - **Last resort**, any version, in Terminal:
      ```
      xattr -dr com.apple.quarantine /Applications/PixelPomoArtKit.app
      ```
