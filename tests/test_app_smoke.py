@@ -116,6 +116,35 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(len(self.ui.ink), 4)
         self.assertEqual(self.ui.ink[3], 255)
 
+    def test_a_frozen_mac_app_keeps_drawings_outside_its_own_bundle(self):
+        # #v2.1.0. On macOS `sys.executable` is
+        # PixelPomoArtKit.app/Contents/MacOS/PixelPomoArtKit, so the Windows
+        # rule ("beside the executable") would put library/ INSIDE the bundle —
+        # hidden behind Finder's "Show Package Contents", and wiped the moment
+        # a new version is dragged over the old app. Every drawing, gone, with
+        # no warning. Pinned because the failure is invisible on Windows, which
+        # is where this is developed.
+        import sys as _sys
+        from unittest import mock
+        with mock.patch.object(_sys, "frozen", True, create=True), \
+                mock.patch.object(_sys, "platform", "darwin"), \
+                mock.patch.object(
+                    _sys, "executable",
+                    "/Applications/PixelPomoArtKit.app/Contents/MacOS/PixelPomoArtKit"):
+            base = app.base_dir()
+        self.assertNotIn(".app", str(base),
+                         f"drawings would live inside the bundle at {base}")
+        self.assertIn("Documents", str(base))
+
+    def test_a_frozen_windows_build_still_writes_beside_the_exe(self):
+        import sys as _sys
+        from unittest import mock
+        with mock.patch.object(_sys, "frozen", True, create=True), \
+                mock.patch.object(_sys, "platform", "win32"), \
+                mock.patch.object(_sys, "executable", r"D:\kit\PixelPomoArtKit.exe"):
+            base = app.base_dir()
+        self.assertEqual(Path(str(base)).name, "kit")
+
     def test_the_export_dialog_does_not_default_into_the_game_assets(self):
         # The game's asset tree is read-only to this app; defaulting the picker
         # there risks clobbering a shipped sprite. The default must live outside.

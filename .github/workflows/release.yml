@@ -95,7 +95,11 @@ jobs:
         run: |
           mkdir stage
           cp -R dist/PixelPomoArtKit.app stage/
-          cp OKUBENI.txt stage/
+          # the Mac-specific guide, not the Windows one — Gatekeeper, the
+          # Applications-folder step and the Documents/ library path are all
+          # different here, and getting any of them wrong is a dead end for the
+          # artist rather than a small annoyance
+          cp OKUBENI-MAC.txt stage/
           cd stage && zip -qry ../${{ matrix.artifact }}.zip .
 
       # Straight to the release, NOT via upload-artifact (#v2.1.0). Both builds

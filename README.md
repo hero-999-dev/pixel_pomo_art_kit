@@ -15,13 +15,51 @@ game's own compositing code, not a reimplementation of it.
 their own copy of the sprite generator, so they work with no game checkout at
 all. Each keeps its `library/` and `exports/` folders next to itself.
 
-| | file | first run |
+| | file | notes |
 |---|---|---|
-| **Windows** | `PixelPomoArtKit-windows.zip` → `PixelPomoArtKit.exe` | unsigned, so SmartScreen says "Windows protected your PC": **More info → Run anyway** |
-| **macOS** | `PixelPomoArtKit-macos.zip` → `PixelPomoArtKit.app` | unsigned, so Gatekeeper says it "cannot be opened": **right-click the app → Open → Open**. Double-clicking will not offer that choice — you have to right-click the first time. |
+| **Windows** | `PixelPomoArtKit-windows.zip` → `PixelPomoArtKit.exe` | unsigned, so SmartScreen says "Windows protected your PC": **More info → Run anyway**. `library/` and `exports/` sit next to the .exe. |
+| **macOS** | `PixelPomoArtKit-macos.zip` → `PixelPomoArtKit.app` | **Apple Silicon only** — see below. Each zip carries its own step-by-step guide (`OKUBENI.txt` / `OKUBENI-MAC.txt`). |
 
 Both are built by CI from the same commit, so the two platforms never drift
 apart.
+
+### macOS, step by step
+
+**This build only runs on Apple Silicon (M1/M2/M3/M4).** It will not open on an
+Intel Mac.  → *About This Mac*: "Chip: Apple M…" is fine, "Processor: Intel…"
+is not — ask for an Intel build and it can be added to the same release.
+
+1. **Unzip** `PixelPomoArtKit-macos.zip`.
+
+2. **Drag `PixelPomoArtKit.app` into your Applications folder.** Don't skip
+   this. macOS runs unsigned apps launched from `Downloads` out of a randomised
+   read-only copy (*app translocation*), and the app misbehaves from there.
+
+3. **First launch only** — the app is unsigned, so macOS blocks it. Try **A**,
+   and if the menu item isn't there use **B**:
+
+   - **A — right-click** the app → **Open** → **Open** again in the dialog.
+     Works on macOS 14 and earlier. *Double-clicking will not offer this
+     choice*; you have to right-click the first time.
+   - **B — macOS 15 (Sequoia) and later** removed that shortcut. Double-click
+     once and dismiss the warning, then  → **System Settings** → **Privacy &
+     Security** → scroll down to **Security** → *"PixelPomoArtKit.app was
+     blocked…"* → **Open Anyway** → confirm.
+   - **C — last resort**, in Terminal:
+     ```
+     xattr -dr com.apple.quarantine /Applications/PixelPomoArtKit.app
+     ```
+
+   After this, it opens by double-click like anything else.
+
+4. **Your drawings live in `~/Documents/PixelPomoArtKit/`** — `library/` for the
+   drawings, `exports/` for exported sprites.
+
+   Deliberately *not* beside the app, unlike Windows. `sys.executable` inside a
+   `.app` points at `Contents/MacOS/`, so "next to the executable" would hide
+   every drawing inside the bundle — and dragging a new version over the old app
+   would delete all of them without warning. Documents is visible, stable, and
+   survives replacing the app.
 
 To run from source instead, from the repository root:
 

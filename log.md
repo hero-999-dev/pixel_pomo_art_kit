@@ -4,6 +4,35 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.1.1 — macOS setup guide, and drawings kept out of the app bundle
+**Date:** 2026-07-28
+
+**A real bug, found while writing the install guide.** `base_dir()` returned
+`Path(sys.executable).parent` whenever frozen — correct on Windows, wrong on
+macOS, where `sys.executable` is `PixelPomoArtKit.app/Contents/MacOS/…`. That
+put `library/` **inside the .app bundle**: hidden behind Finder's "Show Package
+Contents", and wiped without warning the moment a new version was dragged over
+the old app. Every drawing the artist had made, gone, on update. Gatekeeper's
+app translocation can also run a freshly-downloaded bundle from a randomised
+read-only path, so writing beside it is not even reliable.
+
+Frozen macOS builds now use `~/Documents/PixelPomoArtKit/`. Windows is
+unchanged. Two tests pin both branches, because the failure is invisible on the
+platform this is developed on.
+
+**The build is Apple Silicon only.** The runner image is `macos-26-arm64`, so
+the `.app` will not open on an Intel Mac. Stated first in both the README and
+the in-zip guide rather than left for the artist to discover.
+
+**`OKUBENI-MAC.txt` ships inside the macOS zip** — the Windows one was no use
+there. It covers the Applications-folder step (translocation), and *both*
+Gatekeeper paths: right-click → Open for macOS 14 and earlier, and System
+Settings → Privacy & Security → Open Anyway for macOS 15+, where Apple removed
+the right-click shortcut. Getting that wrong is a dead end, not an annoyance.
+Turkish and English, same as the Windows guide.
+
+**Tests:** 88 → 90.
+
 ## v2.1.0 — Mac build, and releases come from CI
 **Date:** 2026-07-28
 

@@ -55,10 +55,27 @@ PICKER_W, SV_H, HUE_H = 168, 120, 14
 NEW_SIZE = 32  # new drawings: room for the trees and pets that are coming
 
 def base_dir():
-    """Where the app keeps `library/` and `exports/`: beside the .exe when
-    frozen by PyInstaller (a onefile exe unpacks its code to a temp dir, so
-    `__file__` is not a place to write), else the repo root."""
+    """Where the app keeps `library/` and `exports/`.
+
+    - Frozen on **macOS**: `~/Documents/PixelPomoArtKit/`.
+    - Frozen on **Windows**: beside the .exe.
+    - From source: the repo root.
+
+    A onefile build unpacks its code to a temp dir, so `__file__` is never a
+    place to write — hence `sys.executable` when frozen.
+
+    macOS is the exception on purpose (#v2.1.0). There `sys.executable` lives at
+    `PixelPomoArtKit.app/Contents/MacOS/`, i.e. INSIDE the bundle, which would
+    put the artist's drawings somewhere Finder hides behind "Show Package
+    Contents" — and, worse, dragging a new version over the old .app would
+    delete every one of them. Gatekeeper's app translocation can also run a
+    freshly-downloaded bundle from a randomised read-only path, so writing next
+    to it is not even reliable. `~/Documents` is visible, stable, and survives
+    replacing the app.
+    """
     if getattr(sys, "frozen", False):
+        if sys.platform == "darwin":
+            return Path.home() / "Documents" / "PixelPomoArtKit"
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent.parent
 
