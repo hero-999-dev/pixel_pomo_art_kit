@@ -96,6 +96,7 @@ jobs:
           mkdir stage
           copy dist\PixelPomoArtKit.exe stage\
           copy READ-ME-FIRST.txt stage\
+          copy assets\icon.png stage\
           powershell Compress-Archive -Path stage\* -DestinationPath ${{ matrix.artifact }}.zip -Force
 
       - name: Package (macOS)
@@ -109,6 +110,7 @@ jobs:
           # different here, and getting any of them wrong is a dead end for the
           # artist rather than a small annoyance
           cp READ-ME-FIRST-MAC.txt stage/
+          cp assets/icon.png stage/
           cd stage && zip -qry ../${{ matrix.artifact }}.zip .
 
       # Straight to the release, NOT via upload-artifact (#v2.1.0). Both builds

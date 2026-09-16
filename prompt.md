@@ -1,8 +1,9 @@
 # Recreation Prompt — Pixel Pomo Art Kit
 
-**Version 1 — 2026-07-25.** Written once the app was feature-complete, so it
-describes what the app actually does rather than what was planned. Keep it
-updated whenever the app's real behaviour changes.
+**Version 2 — 2026-09-16 (v2.4.0).** Written once the app was feature-complete,
+so it describes what the app actually does rather than what was planned. Keep
+it updated whenever the app's real behaviour changes. The v2.4.0 additions are
+in the section "The artists' round" at the end of the prompt.
 
 Paste the prompt below into a fresh AI chat, or hand it to a developer, to
 rebuild the Pixel Pomo Art Kit from nothing.
@@ -150,7 +151,63 @@ rebuild the Pixel Pomo Art Kit from nothing.
 >   stroke that changed nothing, the undo cap), the storage layer's
 >   corruption handling, and the window wired up end-to-end through the same
 >   grid-coordinate methods the rest of the suite calls directly.
+>
+> ### The artists' round (v2.4.0) — for Windows AND macOS, both chips
+> - **Theme the whole window** in the game's green "matcha" palette (copy the
+>   tones from the game's theme table, don't invent them). Never rely on a
+>   native button for colour: macOS Aqua buttons ignore `bg`, so build buttons
+>   on Labels, draw palette swatches on one canvas per palette, and use
+>   themed `ttk` scrollbars on the `clam` theme instead of the native grey
+>   ones. Paint the Windows title bar dark via DWM. The selected tool is the
+>   accent-filled button, and the last tool used is remembered between runs.
+> - **Render with images, not rectangles.** A drawing becomes one in-memory
+>   PNG and one `PhotoImage`, scaled in C — one canvas item however big the
+>   grid. Build the library list once and refresh only the edited row; never
+>   rebuild it per stroke. Mid-stroke, paint only the cells the event touched
+>   over the image; do the full render on release.
+> - **Saving:** a SAVE button and `Ctrl/Cmd+S` on top of the per-stroke
+>   autosave, a `saved HH:MM:SS` status, a save failure shown once as a
+>   dialog and persistently as SAVE FAILED — never a silent traceback. Window
+>   close and Cmd+Q both finish an open stroke and write every drawing
+>   touched. On a frozen macOS build, probe `~/Documents/...` for real and
+>   fall back to `~/Library/Application Support/...` with a warning naming
+>   both paths if it is refused.
+> - **Shortcuts:** `Ctrl/Cmd` + Z / Y / Shift+Z / S / N; `b e f` tools, `m`
+>   symmetry, `+ -` zoom, `F1` help, `Esc` closes help or leaves a text
+>   field. Single-letter keys must not fire while typing in an entry. Bind
+>   `Command` as well as `Control` on macOS, and treat `Button-2` and
+>   Control-click as right-click there.
+> - **Layout:** a one-pixel divider the full height of the window between
+>   canvas and tools; the 1x and squint previews, the drawing's `W × H`
+>   (clickable to resize) and a HELP button in the bottom-right corner. Every
+>   horizontal element of the tools pane — swatch grids, colour panel — the
+>   same width, edges aligned.
+> - **Colours:** the ink is an Entry showing the bare `#rrggbb` on a swatch
+>   of itself — click to type a new code (Enter applies, Esc reverts),
+>   double-click selects all for copying, a `+` beside it adds it to
+>   favourites. A **Favourite colours** grid above Ready colours, seeded with
+>   six classic colours, right-click a swatch to remove it, persisted in a
+>   small settings JSON beside the library (not inside it, where the library
+>   would try to load it as a drawing).
+> - **New drawing / resize dialog** offering the sizes the garden uses — read
+>   from the engine (flower height, tree tiles × px per tile), never
+>   hardcoded — plus a custom width × height; a resize is one undo step.
+> - **Symmetry bar:** a pure module. A bar is an orientation (vertical = 90°,
+>   horizontal = 180°), a length, and the cell it is centred on. A vertical
+>   bar in column c mirrors column c−k onto c+k for cells whose row lies
+>   within its length; a horizontal one mirrors rows within its column span.
+>   A cell on the bar has no twin; a cell beyond the bar's ends is painted
+>   alone. In the window: SYMMETRY toggles it, the next click places the bar
+>   (a ghost follows the cursor first), orientation and length controls
+>   rebuild it in place and persist, and the stroke plus its mirror is one
+>   undo.
+> - **Help overlay** over the main window listing every button and key,
+>   closed with ×, Esc or F1, saying Cmd on macOS.
+> - **Icon:** the game's tomato with a brush beside it, kept as a 16×16
+>   letter grid in code; drawn at run time for the title bar/Dock and
+>   rendered by a script into `.png`/`.ico`/`.icns` for the .exe, the .app,
+>   the README and both release zips.
 
 ---
 
-81 tests passing at this version (`python -m unittest discover -s tests -v`).
+120 tests passing at this version (`python -m unittest discover -s tests -v`).

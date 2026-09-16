@@ -4,6 +4,107 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.4.0 — the artists' round: matcha, symmetry, favourites, and no more freezing
+**Date:** 2026-09-16
+
+**Prompt (Turkish, abridged):** fifteen numbered items from the artists using
+the kit on Windows and macOS — a SAVE button, Ctrl+Z/Y/S/N, previews moved to
+the bottom right behind a full-height divider, the colour panel widened to the
+swatch grid, favourite colours, an ink code that can be copied or typed over
+with a `+` to favourite it, the tomato-and-brush icon everywhere, the app
+freezing on every change, the grey-and-white Windows chrome replaced with the
+game's matcha theme, ready colours rendering white on macOS and closing without
+saving there, a visible selected tool, a new-drawing dialog with the garden's
+sizes and a clickable size in the corner, a symmetry bar, and a help panel.
+
+### The bug that mattered most (item 7 — "uygulama takiliyor")
+
+Every stroke rebuilt the **entire library list**: 59 rows destroyed and
+recreated, each thumbnail one `create_rectangle` per opaque cell. Twenty of
+those rows are trees, up to 64x64 — tens of thousands of canvas items per
+click. The main canvas did the same at zoom scale.
+
+Rendering is now image-based (`art_kit/raster.py`): a drawing becomes one
+in-memory PNG (standard library, Tk 8.6 decodes PNG with alpha natively) and
+one `PhotoImage`, scaled in C with `zoom()`. **One canvas item per drawing.**
+The list is built once and only the edited row is refreshed
+(`_refresh_row`); selection just recolours two rows. Mid-stroke, only the
+cells the event touched are painted as rectangles over the image; the full
+render happens once, on release. Measured on a 64x64 tree: 60 drag events in
+0.69 s including the Tk update, release (render + save + thumbnail) 75 ms.
+The test suite, which builds the whole window 30 times, got faster despite
+growing from 91 to 120 tests.
+
+### macOS (items 9, 10)
+
+**Ready colours were white.** They were `tk.Button`s, and the Aqua button is a
+native control that ignores `bg`. So was every other button — which also means
+the pressed-tool look and the matcha theme would have been invisible on a Mac.
+Swatches are now one `SwatchGrid` canvas per palette; every button is a
+Label-based `theme.Button` that honours its colours on both platforms and
+keeps `command`/`invoke()`.
+
+**Closing without saving.** Saves already happen at the end of every stroke,
+so "it didn't save" meant "every save was failing silently". The likeliest
+cause on macOS: the frozen build writes to `~/Documents/PixelPomoArtKit`, and
+macOS gates Documents behind a privacy prompt — an unsigned app that gets
+"Don't Allow" raises `PermissionError` on each save, into a stderr nobody
+sees. Three fixes, none of which can be verified from Windows, so all three
+ship: `__main__` probes the folder for real and falls back to
+`~/Library/Application Support/PixelPomoArtKit` with a warning that names both
+paths; every save goes through `_save()`, which shows the error once and puts
+**SAVE FAILED** in the status label instead of pretending; and the window's
+close button and Cmd+Q (`::tk::mac::Quit`) both run `close()`, which finishes
+an open stroke and writes every drawing touched this session. The bundle also
+declares `NSDocumentsFolderUsageDescription` so the prompt says why.
+
+Also for Mac: right-click is `Button-2` there (plus Control-click), so the
+eyedropper and the favourites menu bind all of them; shortcuts bind `Command`
+alongside `Control`; the help text says Cmd where it should.
+
+### What the artist sees (items 1–6, 8, 12–15)
+
+- **Matcha theme** (`art_kit/theme.py`), tones copied from `PixelTheme.matcha`
+  in the game. `ttk` scrollbars on `clam` (the classic scrollbar is native and
+  uncolourable — the grey bars in the screenshot). Windows title bar painted
+  dark through `DwmSetWindowAttribute`, dialogs included.
+- **SAVE** above the tools, with a `saved HH:MM:SS` status that every autosave
+  updates. **Ctrl/Cmd+S**, **Ctrl/Cmd+N** (new drawing), Ctrl/Cmd+Z/Y as before.
+- **The selected tool** is the accent-filled button; the **last tool used** is
+  remembered across sessions (`settings.json`, beside `library/`).
+- **Divider + bottom-right corner:** a one-pixel line runs the full height
+  between canvas and tools; the 1x and squint previews, the drawing's
+  `W × H` (click to resize) and **HELP** live in the corner.
+- **Ink** is an Entry showing just `#rrggbb`: click to type a new code, Enter
+  applies, double-click selects it all to copy, `+` adds it to favourites.
+- **Favourite colours** above Ready colours, seeded with six classic colours;
+  right-click a swatch → Remove. Both grids and the colour panel are exactly
+  `PICKER_W` wide, so their edges line up.
+- **New drawing / resize dialog** with the garden's sizes read from the engine
+  (Flower 16×15, Bush/Rock 16×16, Tree 32/48/64) or a custom width × height;
+  a resize is one undo step.
+- **Symmetry bar** (`art_kit/symmetry.py`, pure): SYMMETRY on → the next click
+  places a bar, `│ 90°` or `─ 180°`, `length` cells long, centred on the
+  click; a ghost follows the cursor while placing. Cells painted within the
+  bar's reach are mirrored across it; cells beyond it are painted alone; the
+  stroke and its mirror are one undo. Orientation/length persist.
+- **Help overlay** over the main window: every button and key, closed with ×,
+  Esc or F1.
+- **Icon:** the tomato with a brush beside it, a 16×16 letter grid in
+  `art_kit/branding.py`. Drawn at run time for the title bar/Dock, and
+  rendered by `python -m art_kit.branding` into `assets/icon.{png,ico,icns}`
+  for the .exe, the .app and the README. Both zips carry `icon.png`.
+
+**Tests:** 91 → 120. New files `test_symmetry.py` (9) and `test_settings.py`
+(6); the smoke suite grew by 14 — save writes and reports, the entry shows the
+bare code and accepts a typed one, a letter ink resolves to its palette colour,
+`+`/remove favourites, grid widths match the picker, the last tool is
+remembered by a second app on the same settings, presets come from the engine,
+resize is one undo and the label follows, the bar places on the first click
+then mirrors within reach only and undoes with its stroke, orientation/length
+persist, a stroke updates one row and the art is one image item, help toggles,
+`close()` writes an in-progress stroke, the icon grid is complete.
+
 ## v2.3.0 — an Intel Mac build, and Tahoe-correct Gatekeeper steps
 **Date:** 2026-07-28
 

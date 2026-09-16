@@ -9,12 +9,18 @@ PIXEL POMO ART KIT — HOW TO RUN (Windows)
    That is normal — the file is unsigned. Click:
        "More info"  ->  "Run anyway"
 
-3) The app creates two folders next to itself:
-       library\   ->  your drawings live here. DO NOT DELETE.
-       exports\   ->  sprites you export land here
+3) The app creates next to itself:
+       library\       ->  your drawings live here. DO NOT DELETE.
+       exports\       ->  sprites you export land here
+       settings.json  ->  your favourite colours and last tool
 
 4) Back up the library\ folder now and then (copy-paste is enough).
    The app also keeps a .bak of how each file looked when you opened it.
+
+5) SAVING: every stroke is saved the moment you finish it. The SAVE button
+   (or Ctrl+S) saves again and shows "saved HH:MM:SS" beside it. If you
+   ever see "SAVE FAILED" there, tell the developer — it means the app
+   cannot write to its folder.
 
 
 CONTROLS
@@ -22,24 +28,36 @@ CONTROLS
   Left click       draw (one click, one square)
   Right click      eyedropper — picks up the colour under the cursor
   Drag             continuous line
-  f                fill bucket (paints the connected area)
-  e                eraser              b   brush
+  b / e / f        brush / eraser / fill bucket (paints the connected area)
+  m                symmetry on / off
+  Ctrl+S           save                Ctrl+N   new drawing
   Ctrl+Z           undo                Ctrl+Y   redo
-  Mouse wheel      zoom in / out
-  Colours          panel at the bottom right:
+  Mouse wheel, + - zoom in / out
+  F1               help panel (every button and key)   Esc closes it
+  Colours          panel on the right:
                    top strip  = hue
                    square below = light / dark
                    click or drag either one
+  The ink          the #rrggbb box above the colours. Click it and type a
+                   code, Enter applies. Double-click selects it to copy.
+                   "+" beside it adds the colour to your favourites.
+                   Right-click a favourite to remove it.
+  SYMMETRY         turn it on, then click the canvas where the bar should
+                   stand. "| 90" = standing bar (mirrors left/right),
+                   "- 180" = lying bar (mirrors top/bottom). The number is
+                   how many squares long it is. Painting along the bar is
+                   mirrored across it.
 
 
 THE THREE PANES
 ---------------
   Left    your drawings. Click one to open it.
-          "+ NEW DRAWING" starts a blank one.
+          "+ NEW DRAWING" asks for a size: Flower, Bush, Rock, Tree, or your own.
           The  menu on each row: Duplicate, Export, Rename, Species, Size, Delete.
-  Middle  the canvas, plus two live previews — one at real size, one at a
-          "squint test" distance, both drawn through the game's own code.
-  Right   tools and colours.
+  Middle  the canvas.
+  Right   SAVE, tools, colours; and in the bottom-right corner two live
+          previews — one at real size, one at a "squint test" distance —
+          the drawing's size (click it to resize), and HELP.
 
 
 SENDING YOUR WORK BACK

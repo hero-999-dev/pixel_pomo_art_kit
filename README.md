@@ -1,5 +1,7 @@
 # Pixel Pomo Art Kit
 
+<img src="assets/icon.png" width="96" align="right" alt="Pixel Pomo Art Kit — the tomato and a brush">
+
 A desktop pixel-art editor (Windows and macOS) for drawing and editing the
 sprites that grow in Pixel Pomo's garden — flowers and the surrounding forest.
 It is not a general-purpose pixel editor:
@@ -58,13 +60,22 @@ genuinely different binaries.
    After this, it opens by double-click like anything else.
 
 4. **Your drawings live in `~/Documents/PixelPomoArtKit/`** — `library/` for the
-   drawings, `exports/` for exported sprites.
+   drawings, `exports/` for exported sprites, `settings.json` for favourites
+   and the last tool used.
 
    Deliberately *not* beside the app, unlike Windows. `sys.executable` inside a
    `.app` points at `Contents/MacOS/`, so "next to the executable" would hide
    every drawing inside the bundle — and dragging a new version over the old app
    would delete all of them without warning. Documents is visible, stable, and
    survives replacing the app.
+
+5. **If macOS asks whether the app may access Documents, click Allow.** If it
+   was refused (or the prompt never came), the kit says so on launch and keeps
+   the drawings in `~/Library/Application Support/PixelPomoArtKit/` instead —
+   it never runs with saves silently failing (#v2.4.0). To move back:
+   System Settings → Privacy & Security → Files and Folders → allow Documents
+   for PixelPomoArtKit, then restart it. A failed save also shows **SAVE
+   FAILED** in the status label next to SAVE, and once as a dialog.
 
 To run from source instead, from the repository root:
 
@@ -103,16 +114,19 @@ today" survives next to it.
 
 ## The window
 
-Three panes, left to right:
+Three panes, left to right, in the game's **matcha** theme (the tones are
+`PixelTheme.matcha` from the app itself, so the kit and the game look like one
+product — dark title bar on Windows included):
 
 - **Library.** A scrollable list, one row per drawing: a small thumbnail
   (rendered the same way the canvas is), the drawing's name, and a `⋮` menu —
   Duplicate, Export PNG…, Export JPG…, Export engine sprite…, Rename…,
   Species…, Size…, Delete. Clicking a row opens it in the canvas.
-  `+ NEW DRAWING` at the bottom starts a blank 32x32 drawing — room for the
-  trees and pets that are coming, not just 16-wide flowers; `Size…` changes
-  its width/height (engine flowers need width 16), and `Species…` names a
-  brand-new flower so it can export as an engine sprite.
+  `+ NEW DRAWING` (or `Ctrl+N`) opens a **size dialog**: the sizes the garden
+  actually uses — Flower 16×15, Bush and Rock 16×16, Tree 32/48/64 for 2/3/4
+  tiles, all read from the engine, not typed in — or a custom width × height
+  up to 64. `Species…` names a brand-new flower so it can export as an engine
+  sprite.
 - **Canvas.** The grid fills the middle: selecting a drawing auto-zooms it
   to fit the pane. Click or drag to paint with the current tool and ink —
   fast drags are interpolated, so a quick stroke is a continuous line, not a
@@ -120,22 +134,47 @@ Three panes, left to right:
   one square. **Right-click is an eyedropper**: the cell under the cursor
   becomes the ink. The mouse wheel (or `+`/`-`) zooms from 4x to 48x, with
   scrollbars so the edge pixels stay reachable at any zoom; empty cells show
-  a checkerboard; grid lines appear once each cell is 8px or larger. Beside
-  it sit two live previews, both rendered through the same engine code as
-  every export: one at 1x actual size, and one at a fixed "squint test"
-  scale — the same distance check the project already requires before a
-  sprite is accepted, so you don't have to eyeball it yourself.
-- **Tools.** DRAW / ERASE / FILL (flood fill from the pressed cell, one undo
-  step), UNDO / REDO, an **ink swatch** showing exactly what the next click
-  will paint, thirty ready-made colours, and below them the **full colour
-  panel**, embedded the way a phone app does it — a hue strip over a
-  shade square, click or drag to pick any colour. No popups, no extra
-  windows, no palette jargon.
+  a checkerboard; grid lines appear once each cell is 8px or larger. A
+  one-pixel line runs the full height between the canvas and the tools.
+- **Tools**, top to bottom:
+  - **SAVE**, with a `saved HH:MM:SS` status beside it. Every stroke is
+    autosaved the moment it ends anyway; SAVE (or `Ctrl+S`) is the artist's
+    reassurance, and the one save that complains out loud if it fails.
+  - **DRAW / ERASE / FILL** — the selected tool is the accent-filled button,
+    and the last tool you used is the one selected next time you open the
+    kit. **UNDO / REDO.**
+  - **SYMMETRY**, with `│ 90°` / `─ 180°` and a length. Turn it on and the
+    next click on the canvas places a bar there — standing (mirrors
+    left↔right) or lying flat (mirrors top↔bottom), `length` cells long,
+    centred on the click; a ghost follows the cursor until you do. Anything
+    painted along the bar is mirrored across it; cells beyond its ends are
+    painted alone, so a bar over one petal does not ghost the stem. The
+    stroke and its mirror are one undo. Click the hint under the button to
+    move the bar.
+  - **The ink**, shown as its bare `#rrggbb` code on a swatch of itself.
+    Click it and type a new code (Enter applies, Esc cancels); double-click
+    selects the whole code to copy; `+` adds it to your favourites.
+  - **Favourite colours** — starts as six classic colours; `+` adds the ink,
+    right-click a swatch to remove it. Kept in `settings.json`.
+  - **Ready colours** — thirty of Pixel Pomo's theme tones and pixel-art
+    staples.
+  - **Colour** — the full colour panel, embedded the way a phone app does
+    it: a hue strip over a shade square, click or drag. Exactly as wide as
+    the swatch grids above it, edge to edge.
+  - **Bottom-right corner:** the two live previews — **1x** actual size and a
+    fixed **squint**-test scale, both rendered through the same engine code
+    as every export — the drawing's **W × H** (click it to resize; one undo
+    step), and **HELP**, which lays every button and key over the window
+    (`×`, `Esc` or `F1` closes it).
 
-Keyboard: `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo, `e` / `b` / `f`
-erase/draw/fill, `+` / `-` zoom. Right-click on the canvas picks up the
-colour under the cursor. The title bar always names the drawing you are
-editing.
+Keyboard: `Ctrl+S` save, `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo,
+`Ctrl+N` new drawing, `b` / `e` / `f` draw/erase/fill, `m` symmetry on/off,
+`+` / `-` zoom, `F1` help. On macOS `Cmd` works everywhere `Ctrl` does, and
+right-click is also Control-click. The title bar always names the drawing you
+are editing.
+
+Closing the window (or Cmd+Q) finishes any stroke in progress and writes every
+drawing touched in the session before quitting.
 
 ## Exports, and which one to hand back to the developer
 
@@ -174,9 +213,17 @@ letter drawing, and `store.load()` gives you the raw cells to map onto
 letters first. Engine sprites are always 16 cells wide — `Export engine
 sprite…` checks that before writing anything.
 
+## The icon
+
+Pixel Pomo's tomato with a brush beside it, a 16×16 letter grid in
+`art_kit/branding.py` — the same way the game keeps its own sprites. The window
+draws it at run time (title bar, Dock); `python -m art_kit.branding` renders
+`assets/icon.png`, `icon.ico` (the .exe) and `icon.icns` (the .app) from the
+same grid, and both release zips carry `icon.png`.
+
 ## Tests
 
-81 tests, all passing:
+120 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

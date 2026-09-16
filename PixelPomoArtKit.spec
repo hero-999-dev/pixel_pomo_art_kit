@@ -13,6 +13,14 @@ if not os.path.exists(_GEN):
     raise SystemExit(f'gen_objects.py not found at {_GEN} — is the App folder '
                      f'still a sibling of ArtKit?')
 
+# The tomato-and-brush icon (#v2.4.0). Both files are generated from the same
+# 16x16 grid by `python -m art_kit.branding` and committed under assets/, so
+# the build needs nothing beyond the checkout. The window's own icon is drawn
+# at run time from that grid; these are for the .exe / .app and Finder.
+_ASSETS = os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'assets')
+_ICO = os.path.join(_ASSETS, 'icon.ico')
+_ICNS = os.path.join(_ASSETS, 'icon.icns')
+
 
 a = Analysis(
     ['run_art_kit.py'],
@@ -48,6 +56,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=_ICNS if sys.platform == 'darwin' else _ICO,
 )
 
 # macOS wants a .app bundle, not a bare unix executable — double-clicking the
@@ -58,11 +67,17 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
         name='PixelPomoArtKit.app',
-        icon=None,
+        icon=_ICNS,
         bundle_identifier='com.pixelpomo.artkit',
         info_plist={
             'NSHighResolutionCapable': True,
             # Tk on macOS needs this or the window opens behind everything else
             'LSBackgroundOnly': False,
+            'CFBundleShortVersionString': '2.4.0',
+            'CFBundleVersion': '2.4.0',
+            # The kit writes to ~/Documents; macOS shows this text in the
+            # permission prompt, so the artist knows what is being asked.
+            'NSDocumentsFolderUsageDescription':
+                'Pixel Pomo Art Kit keeps your drawings in Documents/PixelPomoArtKit.',
         },
     )

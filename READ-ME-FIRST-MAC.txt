@@ -85,26 +85,58 @@ arrives and you drag it over the old app, your drawings are untouched.
 Back up the library folder now and then — copying it somewhere is enough.
 
 
+STEP 5 — IF macOS ASKS ABOUT "DOCUMENTS", CLICK ALLOW
+-----------------------------------------------------
+The first time the app saves, macOS may ask whether PixelPomoArtKit may
+access your Documents folder. Click ALLOW.
+
+If it was refused, the app tells you on launch and keeps your drawings in
+    Library / Application Support / PixelPomoArtKit /
+instead — nothing is lost. To move back to Documents:
+    System Settings -> Privacy & Security -> Files and Folders
+    -> PixelPomoArtKit -> turn on "Documents Folder", then restart the app.
+
+SAVING: every stroke is saved the moment you finish it. The SAVE button
+(or Cmd+S) saves again and shows "saved HH:MM:SS" beside it. If you ever
+see "SAVE FAILED" there, tell the developer — it means the app cannot
+write to its folder.
+
+
 CONTROLS
 --------
   Left click       draw (one click, one square)
   Right click      eyedropper — picks up the colour under the cursor
+                   (two-finger tap, or hold Control and click)
   Drag             continuous line
-  f                fill bucket        e   eraser        b   brush
-  Cmd+Z            undo               Cmd+Shift+Z   redo
+  b / e / f        brush / eraser / fill bucket (paints the connected area)
+  m                symmetry on / off
+  Cmd+S            save                Cmd+N   new drawing
+  Cmd+Z            undo                Cmd+Shift+Z or Cmd+Y   redo
+                   (Ctrl works too, if that is what your hands know)
   Two-finger scroll / + -   zoom in and out
-  Colours          panel at the bottom right:
+  F1               help panel (every button and key)   Esc closes it
+  Colours          panel on the right:
                    top strip = hue, square below = light / dark
+  The ink          the #rrggbb box above the colours. Click it and type a
+                   code, Enter applies. Double-click selects it to copy.
+                   "+" beside it adds the colour to your favourites.
+                   Right-click a favourite to remove it.
+  SYMMETRY         turn it on, then click the canvas where the bar should
+                   stand. "| 90" = standing bar (mirrors left/right),
+                   "- 180" = lying bar (mirrors top/bottom). The number is
+                   how many squares long it is. Painting along the bar is
+                   mirrored across it.
 
 
 THE THREE PANES
 ---------------
   Left    your drawings. Click one to open it.
-          "+ NEW DRAWING" starts a blank one.
+          "+ NEW DRAWING" asks for a size: Flower, Bush, Rock, Tree, or your own.
           The  menu on each row: Duplicate, Export, Rename, Species, Size, Delete.
-  Middle  the canvas, plus two live previews — one at real size, one at a
-          "squint test" distance, both drawn through the game's own code.
-  Right   tools and colours.
+  Middle  the canvas.
+  Right   SAVE, tools, colours; and in the bottom-right corner two live
+          previews — one at real size, one at a "squint test" distance —
+          the drawing's size (click it to resize), and HELP.
 
 
 SENDING YOUR WORK BACK
