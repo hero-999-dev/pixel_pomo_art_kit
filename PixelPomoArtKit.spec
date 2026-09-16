@@ -18,6 +18,10 @@ if not os.path.exists(_GEN):
 # the build needs nothing beyond the checkout. The window's own icon is drawn
 # at run time from that grid; these are for the .exe / .app and Finder.
 _ASSETS = os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'assets')
+
+# One version string, read from the package rather than repeated here.
+sys.path.insert(0, os.path.dirname(os.path.abspath(SPEC)))
+from art_kit.version import VERSION as _VERSION  # noqa: E402
 _ICO = os.path.join(_ASSETS, 'icon.ico')
 _ICNS = os.path.join(_ASSETS, 'icon.icns')
 
@@ -73,8 +77,8 @@ if sys.platform == 'darwin':
             'NSHighResolutionCapable': True,
             # Tk on macOS needs this or the window opens behind everything else
             'LSBackgroundOnly': False,
-            'CFBundleShortVersionString': '2.4.0',
-            'CFBundleVersion': '2.4.0',
+            'CFBundleShortVersionString': _VERSION,
+            'CFBundleVersion': _VERSION,
             # The kit writes to ~/Documents; macOS shows this text in the
             # permission prompt, so the artist knows what is being asked.
             'NSDocumentsFolderUsageDescription':

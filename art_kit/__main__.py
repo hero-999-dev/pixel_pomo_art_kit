@@ -2,9 +2,10 @@
 import tkinter as tk
 from pathlib import Path
 
-from art_kit import store
+from art_kit import paths, store
 from art_kit.app import ArtKitApp, base_dir, fallback_dir
 from art_kit.settings import Settings
+from art_kit.version import VERSION
 
 
 def writable(folder):
@@ -36,6 +37,10 @@ def data_dir():
 
 def main():
     data, refused = data_dir()
+    # #v2.5.0: drawings an older Windows build kept beside the .exe are copied
+    # into the per-user folder (never moved), so the first run of this
+    # version starts with everything the artist already had.
+    migrated = paths.migrate_legacy(data)
     library = store.Library(data / "library")
     skipped = library.load_all()
     library.seed_from_engine()
@@ -45,6 +50,13 @@ def main():
     root.minsize(980, 640)
     ArtKitApp(root, library, settings)
     from tkinter import messagebox
+    if migrated:
+        messagebox.showinfo(
+            "Pixel Pomo Art Kit",
+            f"Pixel Pomo Art Kit v{VERSION} keeps your drawings in\n{data}\n\n"
+            f"{migrated} drawing(s) from the old folder next to the program were copied "
+            f"there. The old folder was left as it was. You can now move or replace the "
+            f"program freely — the drawings stay.")
     if refused is not None:
         messagebox.showwarning(
             "Pixel Pomo Art Kit",

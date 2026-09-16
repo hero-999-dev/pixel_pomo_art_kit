@@ -17,7 +17,7 @@ DEFAULT_FAVOURITES = ["FF0000", "FF8000", "FFFF00", "00B000", "0000FF", "8000FF"
 DEFAULTS = {
     "favourites": list(DEFAULT_FAVOURITES),
     "tool": "draw",
-    "symmetry": {"orientation": "vertical", "length": 5},
+    "symmetry": {"orientation": "vertical", "length": 5, "mode": "off"},
     "help_seen": False,
 }
 
@@ -89,10 +89,14 @@ class Settings:
 
     @property
     def symmetry(self):
-        return dict(self.data["symmetry"])
+        merged = dict(DEFAULTS["symmetry"])
+        merged.update(self.data["symmetry"])
+        return merged
 
-    def set_symmetry(self, orientation, length):
-        self.data["symmetry"] = {"orientation": orientation, "length": int(length)}
+    def set_symmetry(self, orientation, length, mode=None):
+        current = self.symmetry
+        self.data["symmetry"] = {"orientation": orientation, "length": int(length),
+                                 "mode": mode if mode is not None else current["mode"]}
         self.save()
 
 

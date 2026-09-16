@@ -139,23 +139,22 @@ class AppSmokeTest(unittest.TestCase):
                          f"drawings would live inside the bundle at {base}")
         self.assertIn("Documents", str(base))
 
-    def test_a_frozen_windows_build_still_writes_beside_the_exe(self):
-        # Built with the HOST's path separators, and compared against pathlib
-        # rather than a hard-coded folder name. The first version hard-coded
-        # r"D:\kit\PixelPomoArtKit.exe" and asserted the parent was "kit" —
-        # which passes on Windows and fails on the macOS CI runner, where
-        # backslashes are ordinary filename characters, so that whole string is
-        # ONE component and `.parent` is the working directory. Same class of
-        # mistake as the byte-comparison tests this release also fixed: the
-        # assertion was about the host, not about the app.
+    def test_a_frozen_windows_build_writes_to_the_user_profile_not_beside_the_exe(self):
+        # #v2.5.0. Up to v2.4.0 this asserted the opposite ("beside the exe").
+        # That lost drawings whenever the .exe was moved or a new version was
+        # unzipped into a fresh folder. The data folder is now per-user, so
+        # the program can go anywhere.
+        import os as _os
         import sys as _sys
         from unittest import mock
         exe = str(Path("kit") / "PixelPomoArtKit.exe")
         with mock.patch.object(_sys, "frozen", True, create=True), \
                 mock.patch.object(_sys, "platform", "win32"), \
-                mock.patch.object(_sys, "executable", exe):
+                mock.patch.object(_sys, "executable", exe), \
+                mock.patch.dict(_os.environ, {"LOCALAPPDATA": str(Path("home") / "AppData" / "Local")}):
             base = app.base_dir()
-        self.assertEqual(base, Path(exe).resolve().parent)
+        self.assertEqual(base, Path("home") / "AppData" / "Local" / "PixelPomoArtKit")
+        self.assertNotEqual(base, Path(exe).resolve().parent)
 
     def test_the_export_dialog_does_not_default_into_the_game_assets(self):
         # The game's asset tree is read-only to this app; defaulting the picker
@@ -327,7 +326,90 @@ class AppSmokeTest(unittest.TestCase):
         self.ui.set_symmetry_length(3)
         self.assertEqual(self.ui.symmetry_bar.orientation, symmetry.HORIZONTAL)
         self.assertEqual(self.ui.symmetry_bar.length, 3)
-        self.assertEqual(self.settings.symmetry, {"orientation": "horizontal", "length": 3})
+        self.assertEqual(self.settings.symmetry,
+                         {"orientation": "horizontal", "length": 3, "mode": "mirror"})
+
+    # ---- #v2.5.0 ------------------------------------------------------------
+
+    def test_stick_mode_paints_a_run_from_the_click(self):
+        self.ui.new_drawing(16, 16)
+        self.ui.set_tool("draw")
+        self.ui.set_ink((0x80, 0, 0xff, 255))
+        self.ui.set_symmetry_mode(symmetry.STICK)
+        self.ui.set_symmetry_orientation(symmetry.HORIZONTAL)
+        self.ui.set_symmetry_length(5)
+        self.assertFalse(self.ui._placing_bar, "STICK needs no bar")
+        self.ui.on_canvas_press(3, 8)
+        self.ui.on_canvas_release()
+        d = self.ui.history.current
+        self.assertEqual([d.get(c, 8) for c in range(3, 8)], [(0x80, 0, 0xff, 255)] * 5)
+        self.assertIsNone(d.get(2, 8))
+        self.assertIsNone(d.get(8, 8))
+        self.ui.undo()
+        self.assertIsNone(self.ui.history.current.get(5, 8), "one click, one undo")
+        self.assertEqual(self.settings.symmetry["mode"], "stick")
+
+    def test_pressing_on_the_bar_drags_it_instead_of_painting(self):
+        self.ui.new_drawing(16, 16)
+        self.ui.set_tool("draw")
+        self.ui.set_ink((1, 1, 1, 255))
+        self.ui.set_symmetry_mode(symmetry.MIRROR)
+        self.ui.place_symmetry_bar(7, 7)  # vertical, 5 long: cells (7, 5..9)
+        self.ui.on_canvas_press(7, 6)     # grabbed one above centre
+        self.ui.on_canvas_drag(10, 6)
+        self.ui.on_canvas_drag(10, 9)
+        self.ui.on_canvas_release()
+        self.assertEqual((self.ui.symmetry_bar.col, self.ui.symmetry_bar.row), (10, 10))
+        d = self.ui.history.current
+        self.assertTrue(all(c is None for row in d.cells for c in row), "a drag paints nothing")
+        self.assertFalse(self.ui.history.can_undo(), "and records no stroke")
+        # PLACE BAR re-arms: the next click puts it somewhere new
+        self.ui.arm_symmetry_placement()
+        self.assertTrue(self.ui._placing_bar)
+        self.ui.on_canvas_press(2, 2)
+        self.ui.on_canvas_release()
+        self.assertEqual((self.ui.symmetry_bar.col, self.ui.symmetry_bar.row), (2, 2))
+
+    def test_the_m_key_cycles_off_mirror_stick(self):
+        self.assertEqual(self.ui.symmetry_mode, symmetry.OFF)
+        self.ui.cycle_symmetry_mode()
+        self.assertEqual(self.ui.symmetry_mode, symmetry.MIRROR)
+        self.ui.cycle_symmetry_mode()
+        self.assertEqual(self.ui.symmetry_mode, symmetry.STICK)
+        self.ui.cycle_symmetry_mode()
+        self.assertEqual(self.ui.symmetry_mode, symmetry.OFF)
+        with self.assertRaises(ValueError):
+            self.ui.set_symmetry_mode("wobble")
+
+    def test_import_png_lands_in_the_library_saved(self):
+        from PIL import Image
+        png = Path(self.tmp.name) / "sprout.png"
+        img = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
+        for x in range(4):
+            img.putpixel((x, 0), (10, 200, 30, 255))
+        img.save(png)
+        before = len(self.lib.drawings)
+        drawing, notes = self.ui.import_png(png)
+        self.assertEqual(len(self.lib.drawings), before + 1)
+        self.assertEqual(drawing.name, "sprout")
+        self.assertEqual(drawing.get(0, 0), (10, 200, 30, 255))
+        self.assertEqual(store.load(self.lib._paths[id(drawing)]).get(3, 0), (10, 200, 30, 255))
+        self.assertIn(id(drawing), self.ui._rows, "and it has a library row")
+        self.assertEqual(drawing.species, "", "species is a string, so the filename slug is sane")
+
+    def test_a_newer_release_lights_the_update_button_a_current_one_does_not(self):
+        from art_kit import updater
+        newer = updater.Release({"tag_name": "v99.0.0", "html_url": "x", "assets": []})
+        current = updater.Release({"tag_name": f"v{app.VERSION}", "html_url": "x", "assets": []})
+        self.ui._on_update_result(current, None, silent=True)
+        self.assertIsNone(self.ui._update_release)
+        self.assertEqual(self.ui._update_button.cget("text"), "UPDATE")
+        self.ui._on_update_result(newer, None, silent=True)
+        self.assertIs(self.ui._update_release, newer)
+        self.assertIn("v99.0.0", self.ui._update_button.cget("text"))
+        # a failed silent check says nothing and changes nothing
+        self.ui._on_update_result(None, OSError("offline"), silent=True)
+        self.assertIs(self.ui._update_release, newer)
 
     def test_a_stroke_updates_one_library_row_instead_of_rebuilding_them_all(self):
         # item 7: the freeze was 59 thumbnails x thousands of rectangles, rebuilt per stroke

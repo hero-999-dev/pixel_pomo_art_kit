@@ -17,7 +17,7 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(s.favourites, DEFAULT_FAVOURITES)
         self.assertEqual(len(s.favourites), 6)
         self.assertEqual(s.tool, "draw")
-        self.assertEqual(s.symmetry, {"orientation": "vertical", "length": 5})
+        self.assertEqual(s.symmetry, {"orientation": "vertical", "length": 5, "mode": "off"})
         self.assertFalse(self.path.exists(), "nothing is written until something changes")
 
     def test_favourites_round_trip_through_the_file(self):
@@ -41,7 +41,16 @@ class SettingsTest(unittest.TestCase):
         s.set_symmetry("horizontal", 9)
         again = Settings(self.path)
         self.assertEqual(again.tool, "fill")
-        self.assertEqual(again.symmetry, {"orientation": "horizontal", "length": 9})
+        self.assertEqual(again.symmetry, {"orientation": "horizontal", "length": 9, "mode": "off"},
+                         "mode is kept when not given")
+        again.set_symmetry("vertical", 3, "stick")
+        self.assertEqual(Settings(self.path).symmetry["mode"], "stick")
+
+    def test_an_old_settings_file_without_a_mode_still_reads(self):
+        self.path.write_text(json.dumps({"symmetry": {"orientation": "horizontal", "length": 7}}),
+                             encoding="utf-8")
+        self.assertEqual(Settings(self.path).symmetry,
+                         {"orientation": "horizontal", "length": 7, "mode": "off"})
 
     def test_a_corrupt_file_falls_back_to_defaults_instead_of_raising(self):
         self.path.write_text("{ this is not json", encoding="utf-8")

@@ -20,13 +20,36 @@ all. Each keeps its `library/` and `exports/` folders next to itself.
 
 | | file | notes |
 |---|---|---|
-| **Windows** | `PixelPomoArtKit-windows.zip` | unsigned, so SmartScreen says "Windows protected your PC": **More info → Run anyway**. `library/` and `exports/` sit next to the .exe. |
+| **Windows** | `PixelPomoArtKit-windows.zip` | unsigned, so SmartScreen says "Windows protected your PC": **More info → Run anyway**. Drawings live in `%LOCALAPPDATA%\PixelPomoArtKit\` — the .exe can sit anywhere and be moved or replaced freely (#v2.5.0). |
 | **macOS, Apple Silicon** | `PixelPomoArtKit-macos-apple-silicon.zip` | M1/M2/M3/M4 — any Mac from late 2020 on |
 | **macOS, Intel** | `PixelPomoArtKit-macos-intel.zip` | older Intel Macs |
 
 All three are built by CI from the same commit, so the platforms never drift
 apart. Each zip carries its own step-by-step guide inside
 (`READ-ME-FIRST.txt` / `READ-ME-FIRST-MAC.txt`).
+
+### Where your drawings are, and why updates cannot lose them
+
+**The data never lives next to the program.** A program is the thing that gets
+moved, re-downloaded, replaced and deleted; the drawings have to survive all of
+that, so they are kept in a per-user folder the program only points at:
+
+| | drawings, exports, settings, update backups |
+|---|---|
+| Windows | `%LOCALAPPDATA%\PixelPomoArtKit\` (e.g. `C:\Users\you\AppData\Local\PixelPomoArtKit\`) |
+| macOS | `~/Documents/PixelPomoArtKit/` |
+
+HELP shows the folder and has an **OPEN FOLDER** button. Up to v2.4.0 the
+Windows build wrote beside the .exe; the first run of v2.5.0 finds that old
+`library/` and copies (never moves) its drawings over, then tells you.
+
+**UPDATE** (next to HELP) asks GitHub for the latest release. A newer one turns
+the button into `UPDATE ● vX.Y.Z` (a fresh build also checks once, quietly, on
+start). On **Windows** the kit downloads the new .exe, **zips the library to
+`backups/library-before-<version>-<date>.zip` first**, closes, swaps itself and
+reopens; the previous .exe is kept as `PixelPomoArtKit.old.exe` in case you want
+it back. On **macOS** it opens the download page — replace the .app as in the
+setup steps; your drawings are in Documents and untouched.
 
 ### macOS, step by step
 
@@ -96,7 +119,8 @@ Requirements:
   `PIXEL_POMO_TOOLS` environment variable at a `tools` folder to override that
   for a layout that isn't this one.
 
-On first run the app creates a `library/` folder next to `art_kit/` and seeds
+On first run the app creates a `library/` folder (next to `art_kit/` when run
+from source; see the table above for the builds) and seeds
 it with everything the game ships, read live from `gen_objects.py` — not copied
 in: the **24 flowers** (12 species, 2 hand-authored models each) and the whole
 **forest** — 20 trees, 10 bushes, 5 rocks (#v34.8).
@@ -126,7 +150,10 @@ product — dark title bar on Windows included):
   actually uses — Flower 16×15, Bush and Rock 16×16, Tree 32/48/64 for 2/3/4
   tiles, all read from the engine, not typed in — or a custom width × height
   up to 64. `Species…` names a brand-new flower so it can export as an engine
-  sprite.
+  sprite. **IMPORT PNG…** below it brings outside art in (Procreate, Aseprite,
+  anything): colour profile converted to sRGB, anti-aliasing snapped, x16
+  exports scaled back down — several files at once, each **saved into the
+  library immediately**, with a summary of what was changed or refused.
 - **Canvas.** The grid fills the middle: selecting a drawing auto-zooms it
   to fit the pane. Click or drag to paint with the current tool and ink —
   fast drags are interpolated, so a quick stroke is a continuous line, not a
@@ -143,14 +170,6 @@ product — dark title bar on Windows included):
   - **DRAW / ERASE / FILL** — the selected tool is the accent-filled button,
     and the last tool you used is the one selected next time you open the
     kit. **UNDO / REDO.**
-  - **SYMMETRY**, with `│ 90°` / `─ 180°` and a length. Turn it on and the
-    next click on the canvas places a bar there — standing (mirrors
-    left↔right) or lying flat (mirrors top↔bottom), `length` cells long,
-    centred on the click; a ghost follows the cursor until you do. Anything
-    painted along the bar is mirrored across it; cells beyond its ends are
-    painted alone, so a bar over one petal does not ghost the stem. The
-    stroke and its mirror are one undo. Click the hint under the button to
-    move the bar.
   - **The ink**, shown as its bare `#rrggbb` code on a swatch of itself.
     Click it and type a new code (Enter applies, Esc cancels); double-click
     selects the whole code to copy; `+` adds it to your favourites.
@@ -161,15 +180,31 @@ product — dark title bar on Windows included):
   - **Colour** — the full colour panel, embedded the way a phone app does
     it: a hue strip over a shade square, click or drag. Exactly as wide as
     the swatch grids above it, edge to edge.
+  - **Symmetry** — three modes (`m` cycles them), a direction `│ 90°` /
+    `─ 180°`, and a length:
+    - **OFF** — plain painting.
+    - **MIRROR** — a bar stands on the canvas, `length` cells long, centred
+      where you click; a ghost follows the cursor until you do. Anything
+      painted along the bar is mirrored across it; cells beyond its ends are
+      painted alone, so a bar over one petal does not ghost the stem. The
+      stroke and its mirror are one undo. **Press on the bar and drag to move
+      it** (the cursor becomes a move cross over it), or **PLACE BAR** and
+      click a new spot. The bar is drawn as an outline only — it is one cell
+      wide.
+    - **STICK** — every click paints `length` cells in one go, to the right
+      (`─ 180°`) or downward (`│ 90°`), starting at the click: "five purple
+      cells over there — click in line, five purple cells here". A ghost of
+      the run follows the cursor.
   - **Bottom-right corner:** the two live previews — **1x** actual size and a
     fixed **squint**-test scale, both rendered through the same engine code
     as every export — the drawing's **W × H** (click it to resize; one undo
-    step), and **HELP**, which lays every button and key over the window
-    (`×`, `Esc` or `F1` closes it).
+    step), **UPDATE** (see above), and **HELP**, which lays every button and
+    key over the window, names the folder your drawings are in, and closes
+    with `×`, `Esc` or `F1`.
 
 Keyboard: `Ctrl+S` save, `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo,
-`Ctrl+N` new drawing, `b` / `e` / `f` draw/erase/fill, `m` symmetry on/off,
-`+` / `-` zoom, `F1` help. On macOS `Cmd` works everywhere `Ctrl` does, and
+`Ctrl+N` new drawing, `b` / `e` / `f` draw/erase/fill, `m` symmetry
+OFF → MIRROR → STICK, `+` / `-` zoom, `F1` help. On macOS `Cmd` works everywhere `Ctrl` does, and
 right-click is also Control-click. The title bar always names the drawing you
 are editing.
 
@@ -223,7 +258,7 @@ same grid, and both release zips carry `icon.png`.
 
 ## Tests
 
-120 tests, all passing:
+145 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

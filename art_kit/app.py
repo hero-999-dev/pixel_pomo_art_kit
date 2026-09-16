@@ -25,19 +25,22 @@ of thousands of canvas rectangles on every stroke was freezing the app.
 import colorsys
 import re
 import sys
+import threading
 import time
 import tkinter as tk
+import webbrowser
 from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
 
-from art_kit import branding, engine_io, raster, symmetry, theme
+from art_kit import branding, engine_io, paths, raster, symmetry, theme, updater
 from art_kit.model import Drawing, History, LETTERS, Palette, hex_to_rgba
 from art_kit.settings import Settings
+from art_kit.version import VERSION
 
 MIN_ZOOM, MAX_ZOOM = 4, 48
 DEFAULT_ZOOM = 20
 CHECKER = theme.CHECKER
-PREVIEW_ZOOM = 8  # the fixed "squint test" scale, independent of the editing zoom
+PREVIEW_ZOOM = 6  # the fixed "squint test" scale, independent of the editing zoom
 THUMB_PX = 64     # a library thumbnail fits in this square (2x for 16-cell art)
 
 ROW_BG = theme.PANEL
@@ -64,8 +67,10 @@ READY = ["FF5A5F", "E02C6D", "9C1B2E", "F2994A", "F2C94C", "F7EFDD",
 TOOLS_W = 268
 PAD = 8
 INNER_W = TOOLS_W - 2 * PAD - 1  # minus the separator line
-SWATCH_COLS = 6
-PICKER_W, SV_H, HUE_H = INNER_W, 120, 14
+# Eight swatches a row (#v2.5.0, was six): the symmetry block moved under
+# the colour panel and the pane has to fit an 820px-tall window.
+SWATCH_COLS = 8
+PICKER_W, SV_H, HUE_H = INNER_W, 100, 14
 LIBRARY_W = 220
 
 NEW_SIZE = 32  # new drawings: room for the trees and pets that are coming
@@ -73,29 +78,20 @@ MAX_SIZE = 64
 
 
 def base_dir():
-    """Where the app keeps `library/` and `exports/`.
+    """Where the app keeps `library/`, `exports/` and `settings.json`.
 
     - Frozen on **macOS**: `~/Documents/PixelPomoArtKit/`.
-    - Frozen on **Windows**: beside the .exe.
+    - Frozen on **Windows**: `%LOCALAPPDATA%\\PixelPomoArtKit\\` (#v2.5.0 —
+      it used to be beside the .exe, and moving or re-downloading the .exe
+      left the drawings behind).
     - From source: the repo root.
 
-    A onefile build unpacks its code to a temp dir, so `__file__` is never a
-    place to write — hence `sys.executable` when frozen.
-
-    macOS is the exception on purpose (#v2.1.0). There `sys.executable` lives at
-    `PixelPomoArtKit.app/Contents/MacOS/`, i.e. INSIDE the bundle, which would
-    put the artist's drawings somewhere Finder hides behind "Show Package
-    Contents" — and, worse, dragging a new version over the old .app would
-    delete every one of them. Gatekeeper's app translocation can also run a
-    freshly-downloaded bundle from a randomised read-only path, so writing next
-    to it is not even reliable. `~/Documents` is visible, stable, and survives
-    replacing the app.
+    Never inside or beside the program, on either platform: a program is the
+    thing that gets moved, replaced and deleted, and the drawings must survive
+    all three. See `paths.py` for the whole argument (and #v2.1.1 for the
+    macOS half of it: `sys.executable` is INSIDE the .app bundle there).
     """
-    if getattr(sys, "frozen", False):
-        if sys.platform == "darwin":
-            return Path.home() / "Documents" / "PixelPomoArtKit"
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parent.parent
+    return paths.data_dir()
 
 
 def fallback_dir():
@@ -112,11 +108,15 @@ def fallback_dir():
     return base_dir()
 
 
-# Where the export dialog opens. Deliberately NOT the game's asset folder:
-# pixel_pomo is read-only to this app, and defaulting there risks overwriting a
-# shipped flower_*.png (the very files the byte-equality tests trust). The
-# artist browses over by hand if they really mean to update the game.
-ENGINE_SPRITE_DIR = base_dir() / "exports"
+def engine_sprite_dir():
+    """Where the export dialog opens. Deliberately NOT the game's asset folder:
+    pixel_pomo is read-only to this app, and defaulting there risks overwriting
+    a shipped flower_*.png (the very files the byte-equality tests trust). The
+    artist browses over by hand if they really mean to update the game."""
+    return base_dir() / "exports"
+
+
+ENGINE_SPRITE_DIR = engine_sprite_dir()  # the older name, for callers that import it
 
 
 def _hex(px):
@@ -161,7 +161,7 @@ def size_presets():
 
 
 class ArtKitApp:
-    def __init__(self, root, library, settings=None):
+    def __init__(self, root, library, settings=None, check_updates=None):
         self.root = root
         self.library = library
         self.settings = settings or Settings(library.root.parent / "settings.json")
@@ -177,14 +177,17 @@ class ArtKitApp:
         self._rows = {}        # id(drawing) -> row widgets, built once (item 7)
         self._images = {}      # every PhotoImage on screen, kept alive here
         self._save_error_shown = False
-        # symmetry (item 14)
+        # symmetry (#v2.4.0 item 14, redesigned #v2.5.0: three modes)
         sym = self.settings.symmetry
-        self.symmetry_on = False
+        self.symmetry_mode = sym.get("mode") if sym.get("mode") in symmetry.MODES else symmetry.OFF
         self.symmetry_bar = None
-        self._sym_orientation = sym.get("orientation", symmetry.VERTICAL)
+        self._sym_orientation = (sym.get("orientation") if sym.get("orientation") in symmetry.ORIENTATIONS
+                                 else symmetry.VERTICAL)
         self._sym_length = int(sym.get("length", 5))
-        self._placing_bar = False
+        self._placing_bar = self.symmetry_mode == symmetry.MIRROR  # a bar has to be placed first
+        self._dragging_bar = None  # (dcol, drow) grab offset while the bar is being moved
         self._help = None
+        self._update_release = None  # the newer Release, once a check has found one
 
         theme.setup(root)
         branding.apply_window_icon(root)
@@ -200,6 +203,118 @@ class ArtKitApp:
                 pass
         if library.drawings:
             self.select(library.drawings[0])
+        # A frozen build looks for a newer release once, quietly, after the
+        # window is up. From source (and in tests) only the UPDATE button asks.
+        if check_updates is None:
+            check_updates = bool(getattr(sys, "frozen", False))
+        if check_updates:
+            root.after(2500, lambda: self.check_for_update(silent=True))
+
+    # ---- updates (#v2.5.0) ---------------------------------------------------
+    def check_for_update(self, silent=False):
+        """Ask GitHub for the latest release on a worker thread; report on
+        the Tk thread. `silent` is the startup check: failures and "already
+        current" say nothing, only a newer release lights the button up."""
+        if not silent:
+            self._set_status("checking\u2026")
+
+        def work():
+            try:
+                release = updater.check()
+                error = None
+            except Exception as exc:  # network, JSON, anything: never crash the kit
+                release, error = None, exc
+            self.root.after(0, lambda: self._on_update_result(release, error, silent))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_result(self, release, error, silent):
+        if error is not None:
+            if not silent:
+                self._set_status("check failed", error=True)
+                messagebox.showwarning(
+                    "Pixel Pomo Art Kit",
+                    f"Could not reach GitHub to check for updates:\n{error}\n\n"
+                    f"You can always look here:\n{updater.RELEASES_PAGE}", parent=self.root)
+            return
+        if not release.is_newer:
+            self._update_release = None
+            if not silent:
+                self._set_status(f"v{VERSION} is current", flash=True)
+                messagebox.showinfo("Pixel Pomo Art Kit",
+                                    f"You have the latest version, v{VERSION}.", parent=self.root)
+            return
+        self._update_release = release
+        self._update_button.configure(text=f"UPDATE \u25cf {release.tag}", bg=theme.WORK,
+                                      fg=theme.ON_ACCENT, activebackground=theme.ACCENT)
+        self._set_status(f"{release.tag} available", flash=True)
+        if not silent:
+            self.offer_update(release)
+
+    def offer_update(self, release):
+        """The dialog. Windows swaps the .exe itself; everywhere else the
+        release page opens in the browser."""
+        data = str(self.library.root.parent)
+        if updater.can_self_update():
+            if messagebox.askyesno(
+                    "Pixel Pomo Art Kit",
+                    f"Pixel Pomo Art Kit {release.tag} is available (you have v{VERSION}).\n\n"
+                    f"Update now? The kit downloads the new version, closes, swaps itself and "
+                    f"reopens.\n\nYour drawings are NOT touched — they live in\n{data}\n"
+                    f"and a backup zip of the library is made first.", parent=self.root):
+                self._apply_windows_update(release)
+            return
+        if messagebox.askyesno(
+                "Pixel Pomo Art Kit",
+                f"Pixel Pomo Art Kit {release.tag} is available (you have v{VERSION}).\n\n"
+                f"Open the download page?\n\nYour drawings live in\n{data}\n"
+                f"and are not affected by replacing the app.", parent=self.root):
+            webbrowser.open(release.url)
+
+    def _apply_windows_update(self, release):
+        url = release.assets.get(updater.WINDOWS_ASSET)
+        if not url:
+            messagebox.showerror("Pixel Pomo Art Kit",
+                                 f"{release.tag} has no Windows download yet. Try again in a few "
+                                 f"minutes, or open\n{release.url}", parent=self.root)
+            return
+        self._update_button.configure(state="disabled")
+        dest = updater.temp_download_path(release.tag)
+
+        def progress(done, total):
+            pct = f"{100 * done // total}%" if total else f"{done // 1024} KB"
+            self.root.after(0, lambda: self._set_status(f"downloading {pct}"))
+
+        def work():
+            try:
+                updater.download(url, dest, progress)
+                self.root.after(0, lambda: self._finish_windows_update(release, dest))
+            except Exception as exc:
+                self.root.after(0, lambda: self._update_failed(exc))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _update_failed(self, exc):
+        self._update_button.configure(state="normal")
+        self._set_status("update failed", error=True)
+        messagebox.showerror("Pixel Pomo Art Kit",
+                             f"The update could not be applied:\n{exc}\n\nNothing was changed. "
+                             f"You can download it by hand from\n{updater.RELEASES_PAGE}",
+                             parent=self.root)
+
+    def _finish_windows_update(self, release, zip_path):
+        """Downloaded: back the library up, stage the new .exe, hand off, quit."""
+        try:
+            backup = updater.backup_library(self.library.root.parent, release.tag)
+            _new_exe, script = updater.stage_windows(zip_path)
+            self._set_status("restarting\u2026")
+            updater.launch_handoff(script)
+        except Exception as exc:
+            self._update_failed(exc)
+            return
+        if backup is not None:
+            self._set_status(f"backup: {backup.name}")
+        self.close()
 
     # ---- state ---------------------------------------------------------
     def select(self, drawing):
@@ -309,17 +424,36 @@ class ArtKitApp:
         self.settings.save()
         self.root.destroy()
 
-    # ---- symmetry (item 14) -----------------------------------------------
+    # ---- symmetry (#v2.4.0 item 14, #v2.5.0 modes) -------------------------------
+    @property
+    def symmetry_on(self):
+        """Older name: is the MIRROR bar in effect?"""
+        return self.symmetry_mode == symmetry.MIRROR
+
     def set_symmetry(self, on):
-        self.symmetry_on = bool(on)
-        # Switching it on with no bar placed arms placement: the next canvas
-        # click puts the bar there instead of painting.
-        self._placing_bar = self.symmetry_on and self.symmetry_bar is None
+        """Older API: MIRROR on/off."""
+        self.set_symmetry_mode(symmetry.MIRROR if on else symmetry.OFF)
+
+    def set_symmetry_mode(self, mode):
+        if mode not in symmetry.MODES:
+            raise ValueError(f"mode must be one of {symmetry.MODES}, got {mode!r}")
+        self.symmetry_mode = mode
+        # MIRROR with no bar yet arms placement: the next canvas click puts
+        # the bar there instead of painting. STICK needs no bar.
+        self._placing_bar = mode == symmetry.MIRROR and self.symmetry_bar is None
+        self._dragging_bar = None
+        self.settings.set_symmetry(self._sym_orientation, self._sym_length, mode)
         self._refresh_symmetry_ui()
         self._draw_main()
 
+    def cycle_symmetry_mode(self):
+        """The `m` key: OFF -> MIRROR -> STICK -> OFF."""
+        i = symmetry.MODES.index(self.symmetry_mode)
+        self.set_symmetry_mode(symmetry.MODES[(i + 1) % len(symmetry.MODES)])
+
     def arm_symmetry_placement(self):
-        if self.symmetry_on:
+        """PLACE BAR: the next click moves the bar (or places it)."""
+        if self.symmetry_mode == symmetry.MIRROR:
             self._placing_bar = True
             self._refresh_symmetry_ui()
 
@@ -330,7 +464,7 @@ class ArtKitApp:
         if self.symmetry_bar is not None:
             self.symmetry_bar = symmetry.Bar(orientation, self._sym_length,
                                              self.symmetry_bar.col, self.symmetry_bar.row)
-        self.settings.set_symmetry(self._sym_orientation, self._sym_length)
+        self.settings.set_symmetry(self._sym_orientation, self._sym_length, self.symmetry_mode)
         self._refresh_symmetry_ui()
         self._draw_main()
 
@@ -340,7 +474,7 @@ class ArtKitApp:
         if self.symmetry_bar is not None:
             self.symmetry_bar = symmetry.Bar(self._sym_orientation, length,
                                              self.symmetry_bar.col, self.symmetry_bar.row)
-        self.settings.set_symmetry(self._sym_orientation, self._sym_length)
+        self.settings.set_symmetry(self._sym_orientation, self._sym_length, self.symmetry_mode)
         self._refresh_symmetry_ui()
         self._draw_main()
 
@@ -350,8 +484,25 @@ class ArtKitApp:
         self._refresh_symmetry_ui()
         self._draw_main()
 
+    def move_symmetry_bar(self, col, row):
+        """Drag: re-centre the bar without changing its shape."""
+        if self.symmetry_bar is None:
+            self.place_symmetry_bar(col, row)
+            return
+        d = self.history.current if self.history else None
+        if d is not None:
+            col = max(0, min(d.width - 1, col))
+            row = max(0, min(d.height - 1, row))
+        if (col, row) != (self.symmetry_bar.col, self.symmetry_bar.row):
+            self.symmetry_bar = self.symmetry_bar.moved_to(col, row)
+            self._draw_main()
+
     def _active_bar(self):
-        return self.symmetry_bar if self.symmetry_on else None
+        return self.symmetry_bar if self.symmetry_mode == symmetry.MIRROR else None
+
+    def _on_bar(self, col, row):
+        bar = self._active_bar()
+        return bar is not None and (col, row) in bar.cells()
 
     # ---- pointer, in GRID coordinates ----------------------------------
     def on_canvas_press(self, col, row):
@@ -359,6 +510,12 @@ class ArtKitApp:
             return
         if self._placing_bar:
             self.place_symmetry_bar(col, row)
+            return
+        if self._on_bar(col, row):
+            # Pressing ON the bar picks it up: drag to move, release to drop.
+            # This is what "the bar gets stuck" (#v2.5.0) was missing.
+            bar = self.symmetry_bar
+            self._dragging_bar = (bar.col - col, bar.row - row)
             return
         self.history.begin_stroke()
         self._painting = True
@@ -371,6 +528,10 @@ class ArtKitApp:
             self._paint_fast()
 
     def on_canvas_drag(self, col, row):
+        if self._dragging_bar is not None:
+            dc, dr = self._dragging_bar
+            self.move_symmetry_bar(col + dc, row + dr)
+            return
         if not self._painting:
             return
         # Walk the whole line from the last reported cell, so a quick stroke
@@ -385,6 +546,10 @@ class ArtKitApp:
             self._paint_fast()
 
     def on_canvas_release(self):
+        if self._dragging_bar is not None:
+            self._dragging_bar = None
+            self._refresh_symmetry_ui()
+            return
         if not self._painting:
             return
         self._painting = False
@@ -405,9 +570,17 @@ class ArtKitApp:
         if cell is not None:
             self.set_ink(cell)
 
+    def _target_cells(self, col, row):
+        """The cells one pointer cell turns into under the current symmetry
+        mode: itself and its mirror twin (MIRROR), a run of `length` (STICK),
+        or just itself."""
+        if self.symmetry_mode == symmetry.STICK:
+            return symmetry.expand_stick(self._sym_orientation, self._sym_length, [(col, row)])
+        return symmetry.expand(self._active_bar(), [(col, row)])
+
     def _apply(self, col, row):
         drawing = self.history.current
-        for c, r in symmetry.expand(self._active_bar(), [(col, row)]):
+        for c, r in self._target_cells(col, row):
             if self.tool == "erase":
                 drawing.erase(c, r)
             elif self.tool == "fill":
@@ -461,10 +634,14 @@ class ArtKitApp:
         frame.pack(side="left", fill="y")
         frame.pack_propagate(False)
 
+        # IMPORT sits under NEW DRAWING (#v2.5.0): outside PNGs come in and
+        # are saved into the library straight away.
+        import_btn = theme.button(frame, "IMPORT PNG\u2026", self._import_dialog)
+        import_btn.pack(side="bottom", fill="x", padx=PAD, pady=(0, PAD))
         new_btn = theme.button(frame, "+ NEW DRAWING", self._new_drawing_dialog,
                                bg=theme.WORK, fg=theme.ON_ACCENT,
                                activebackground=theme.ACCENT, activeforeground=theme.ON_ACCENT)
-        new_btn.pack(side="bottom", fill="x", padx=PAD, pady=PAD)
+        new_btn.pack(side="bottom", fill="x", padx=PAD, pady=(PAD, 4))
 
         scrollbar = theme.scrollbar(frame, "vertical")
         scrollbar.pack(side="right", fill="y")
@@ -543,6 +720,8 @@ class ArtKitApp:
         self._size_label.bind("<Button-1>", lambda e: self._set_size(self._selected))
         theme.label(foot, "  click to resize", dim=True).pack(side="left")
         theme.button(foot, "HELP", self.toggle_help, padx=10).pack(side="right")
+        self._update_button = theme.button(foot, "UPDATE", self.check_for_update, padx=8)
+        self._update_button.pack(side="right", padx=(0, 4))
 
         previews = theme.frame(bottom)
         previews.pack(fill="x", pady=(0, 6))
@@ -582,8 +761,6 @@ class ArtKitApp:
         theme.button(undo_row, "UNDO", self.undo).pack(side="left", expand=True, fill="x")
         theme.button(undo_row, "REDO", self.redo).pack(side="left", expand=True, fill="x", padx=(2, 0))
 
-        self._build_symmetry_row(frame)
-
         # What the next click will paint — the one piece of state the artist
         # otherwise has to keep in their head. An Entry, so the code can be
         # copied (double-click selects it all) or typed over (item 5).
@@ -614,33 +791,55 @@ class ArtKitApp:
         self._ready.set_colours(READY)
 
         self._build_picker(frame)
+        self._build_symmetry_block(frame)
 
         self._refresh_tool_buttons()
         self._refresh_symmetry_ui()
         self._refresh_ink_ui()
 
-    def _build_symmetry_row(self, frame):
-        row = theme.frame(frame)
-        row.pack(fill="x", pady=2)
-        self._sym_button = theme.button(row, "SYMMETRY",
-                                        lambda: self.set_symmetry(not self.symmetry_on), padx=4)
-        self._sym_button.pack(side="left", expand=True, fill="x")
+    def _build_symmetry_block(self, frame):
+        """Under the colour panel (#v2.5.0): a mode row, a shape row, a hint.
+
+        OFF     — plain painting.
+        MIRROR  — the placed bar; painting along it is mirrored across it.
+                  Press on the bar to drag it, or PLACE BAR to click it
+                  somewhere new.
+        STICK   — every click paints `length` cells in the bar's direction.
+        """
+        theme.label(frame, "Symmetry", dim=True).pack(pady=(PAD, 0), anchor="w")
+        modes = theme.frame(frame)
+        modes.pack(fill="x", pady=2)
+        self._sym_mode_buttons = {}
+        for i, (mode, text) in enumerate(((symmetry.OFF, "OFF"), (symmetry.MIRROR, "MIRROR"),
+                                          (symmetry.STICK, "STICK"))):
+            btn = theme.button(modes, text, lambda m=mode: self.set_symmetry_mode(m), padx=4)
+            btn.pack(side="left", expand=True, fill="x", padx=(0 if i == 0 else 2, 0))
+            self._sym_mode_buttons[mode] = btn
+
+        shape = theme.frame(frame)
+        shape.pack(fill="x", pady=2)
         self._sym_orient_button = theme.button(
-            row, "", self._toggle_symmetry_orientation, padx=5)
-        self._sym_orient_button.pack(side="left", padx=(2, 0))
+            shape, "", self._toggle_symmetry_orientation, padx=5)
+        self._sym_orient_button.pack(side="left", expand=True, fill="x")
+        theme.label(shape, "length", dim=True).pack(side="left", padx=(6, 2))
         self._sym_length_var = tk.StringVar(value=str(self._sym_length))
         self._sym_length_spin = tk.Spinbox(
-            row, from_=symmetry.MIN_LENGTH, to=symmetry.MAX_LENGTH, width=3,
+            shape, from_=symmetry.MIN_LENGTH, to=symmetry.MAX_LENGTH, width=3,
             textvariable=self._sym_length_var, command=self._on_symmetry_length,
             bg=theme.PANEL, fg=theme.ON_SURFACE, buttonbackground=theme.PANEL_HI,
             relief="flat", bd=0, highlightthickness=1, highlightbackground=theme.SHADOW,
             insertbackground=theme.ON_SURFACE, font=theme.FONT_MONO, justify="center")
-        self._sym_length_spin.pack(side="left", padx=(2, 0), ipady=2)
+        self._sym_length_spin.pack(side="left", ipady=2)
         self._sym_length_spin.bind("<Return>", self._on_symmetry_length)
         self._sym_length_spin.bind("<FocusOut>", self._on_symmetry_length)
-        self._sym_hint = theme.label(frame, "", dim=True, anchor="w")
+        self._sym_place_button = theme.button(shape, "PLACE BAR", self.arm_symmetry_placement, padx=5)
+        self._sym_place_button.pack(side="left", padx=(2, 0))
+
+        self._sym_hint = theme.label(frame, "", dim=True, anchor="w", wraplength=INNER_W,
+                                     justify="left")
         self._sym_hint.pack(fill="x")
-        self._sym_hint.bind("<Button-1>", lambda e: self.arm_symmetry_placement())
+        # the old single toggle, kept as a name for anything that still asks
+        self._sym_button = self._sym_mode_buttons[symmetry.MIRROR]
 
     def _toggle_symmetry_orientation(self):
         other = (symmetry.HORIZONTAL if self._sym_orientation == symmetry.VERTICAL
@@ -656,19 +855,35 @@ class ArtKitApp:
             self.canvas.focus_set()
 
     def _refresh_symmetry_ui(self):
-        if not hasattr(self, "_sym_button"):
+        if not hasattr(self, "_sym_mode_buttons"):
             return
-        theme.set_pressed(self._sym_button, self.symmetry_on)
-        glyph = "\u2502 90\u00b0" if self._sym_orientation == symmetry.VERTICAL else "\u2500 180\u00b0"
+        for mode, btn in self._sym_mode_buttons.items():
+            theme.set_pressed(btn, mode == self.symmetry_mode)
+        vertical = self._sym_orientation == symmetry.VERTICAL
+        if self.symmetry_mode == symmetry.STICK:
+            glyph = "\u2502 90\u00b0  down" if vertical else "\u2500 180\u00b0  right"
+        else:
+            glyph = "\u2502 90\u00b0  standing" if vertical else "\u2500 180\u00b0  lying"
         self._sym_orient_button.configure(text=glyph)
         if self._sym_length_var.get() != str(self._sym_length):
             self._sym_length_var.set(str(self._sym_length))
-        if not self.symmetry_on:
-            self._sym_hint.configure(text="")
+        mirror = self.symmetry_mode == symmetry.MIRROR
+        self._sym_place_button.configure(state="normal" if mirror else "disabled",
+                                         fg=theme.ON_SURFACE if mirror else theme.ON_DIM)
+        theme.set_pressed(self._sym_place_button, mirror and self._placing_bar)
+        if self.symmetry_mode == symmetry.OFF:
+            self._sym_hint.configure(text="", fg=theme.ON_DIM)
+        elif self.symmetry_mode == symmetry.STICK:
+            self._sym_hint.configure(
+                text=f"each click paints {self._sym_length} cells "
+                     f"{'downward' if vertical else 'to the right'}", fg=theme.ON_DIM)
         elif self._placing_bar:
-            self._sym_hint.configure(text="\u25b8 click the canvas to place the bar", fg=theme.ACCENT)
+            self._sym_hint.configure(text="\u25b8 click the canvas where the bar should stand",
+                                     fg=theme.ACCENT)
         else:
-            self._sym_hint.configure(text="bar placed \u00b7 click here to move it", fg=theme.ON_DIM)
+            self._sym_hint.configure(
+                text="painting along the bar is mirrored \u00b7 drag the bar to move it",
+                fg=theme.ON_DIM)
 
     def _build_picker(self, frame):
         """The full colour panel, embedded \u2014 a hue strip over a shade square,
@@ -732,7 +947,7 @@ class ArtKitApp:
         self.root.bind("<Key-e>", self._typing_guard(lambda: self.set_tool("erase")))
         self.root.bind("<Key-b>", self._typing_guard(lambda: self.set_tool("draw")))
         self.root.bind("<Key-f>", self._typing_guard(lambda: self.set_tool("fill")))
-        self.root.bind("<Key-m>", self._typing_guard(lambda: self.set_symmetry(not self.symmetry_on)))
+        self.root.bind("<Key-m>", self._typing_guard(self.cycle_symmetry_mode))
         self.root.bind("<plus>", self._typing_guard(lambda: self.zoom(+1)))
         self.root.bind("<KP_Add>", self._typing_guard(lambda: self.zoom(+1)))
         self.root.bind("<minus>", self._typing_guard(lambda: self.zoom(-1)))
@@ -778,11 +993,24 @@ class ArtKitApp:
     def _on_motion(self, event):
         """While placing the symmetry bar, a ghost of it follows the cursor."""
         self.canvas.delete("ghost")
-        if not (self._placing_bar and self.history is not None):
+        if self.history is None:
             return
         col, row = self._grid_at(event)
-        ghost = symmetry.Bar(self._sym_orientation, self._sym_length, col, row)
-        self._draw_bar(ghost, tag="ghost", colour=theme.ON_DIM)
+        if self._placing_bar:
+            ghost = symmetry.Bar(self._sym_orientation, self._sym_length, col, row)
+            self._draw_bar(ghost, tag="ghost", colour=theme.ON_DIM)
+        elif self.symmetry_mode == symmetry.STICK and not self._painting:
+            # the run this click would paint, so the artist can line it up
+            z = self.zoom_level
+            cells = symmetry.stick(self._sym_orientation, self._sym_length, col, row)
+            x0, y0 = min(c for c, _ in cells) * z, min(r for _, r in cells) * z
+            x1, y1 = (max(c for c, _ in cells) + 1) * z, (max(r for _, r in cells) + 1) * z
+            self.canvas.create_rectangle(x0 + 1, y0 + 1, x1 - 1, y1 - 1, outline=theme.ON_DIM,
+                                         width=1, tags="ghost")
+        elif self._on_bar(col, row):
+            self.canvas.configure(cursor="fleur")
+            return
+        self.canvas.configure(cursor="")
 
     # ---- the ink entry (item 5) -----------------------------------------------
     def _on_ink_entry_commit(self, _event=None):
@@ -937,6 +1165,41 @@ class ArtKitApp:
         SizeDialog(self.root, "New drawing", (NEW_SIZE, NEW_SIZE), size_presets(),
                    self.new_drawing, verb="CREATE")
 
+    # ---- import (#v2.5.0) -------------------------------------------------------
+    def import_png(self, path):
+        """One outside PNG -> a drawing in the library, saved. Returns
+        (drawing, notes); raises engine_io.ImportRefused."""
+        drawing, notes = engine_io.import_png(path)
+        drawing.species = drawing.species or ""
+        self.library.add(drawing)
+        self._build_row(drawing)
+        self._list_frame.update_idletasks()
+        self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+        return drawing, notes
+
+    def _import_dialog(self):
+        files = filedialog.askopenfilenames(
+            parent=self.root, title="Import PNG",
+            filetypes=[("PNG image", "*.png"), ("All files", "*.*")])
+        if not files:
+            return
+        report, last = [], None
+        for path in files:
+            try:
+                drawing, notes = self.import_png(path)
+            except (engine_io.ImportRefused, OSError) as exc:
+                report.append(f"\u2717 {Path(path).name}: {exc}")
+                continue
+            last = drawing
+            line = f"\u2713 {drawing.name} ({drawing.width}\u00d7{drawing.height})"
+            if notes:
+                line += "\n    " + "\n    ".join(notes)
+            report.append(line)
+        if last is not None:
+            self.select(last)
+        messagebox.showinfo("Pixel Pomo Art Kit", "Imported into the library:\n\n" + "\n".join(report),
+                            parent=self.root)
+
     def _duplicate(self, drawing):
         clone = self.library.duplicate(drawing)
         self._build_row(clone)
@@ -1048,10 +1311,10 @@ class ArtKitApp:
             messagebox.showerror("Pixel Pomo Art Kit", str(exc))
 
     def _export_engine_sprite(self, drawing):
-        ENGINE_SPRITE_DIR.mkdir(parents=True, exist_ok=True)  # so the picker opens somewhere real
+        folder = engine_sprite_dir()
+        folder.mkdir(parents=True, exist_ok=True)  # so the picker opens somewhere real
         out_dir = filedialog.askdirectory(
-            parent=self.root, title="Export engine sprite",
-            initialdir=str(ENGINE_SPRITE_DIR))
+            parent=self.root, title="Export engine sprite", initialdir=str(folder))
         if not out_dir:
             return
         names = ", ".join(engine_io.engine_sprite_names(drawing))
@@ -1168,14 +1431,10 @@ class ArtKitApp:
         rs = [r for _, r in cells]
         x0, y0 = min(cs) * z, min(rs) * z
         x1, y1 = (max(cs) + 1) * z, (max(rs) + 1) * z
+        # Just the outline around the bar's cells — the bar IS one cell wide,
+        # and a line through its middle read as a second, thinner bar (#v2.5.0).
         self.canvas.create_rectangle(x0 + 1, y0 + 1, x1 - 1, y1 - 1, outline=colour,
                                      width=2, tags=tag)
-        if bar.orientation == symmetry.VERTICAL:
-            mid = bar.col * z + z // 2
-            self.canvas.create_line(mid, y0, mid, y1, fill=colour, width=2, tags=tag)
-        else:
-            mid = bar.row * z + z // 2
-            self.canvas.create_line(x0, mid, x1, mid, fill=colour, width=2, tags=tag)
 
     # ---- help (item 15) -------------------------------------------------------
     def toggle_help(self):
@@ -1183,7 +1442,7 @@ class ArtKitApp:
             self._help.destroy()
             self._help = None
             return
-        self._help = HelpOverlay(self.root, self.toggle_help)
+        self._help = HelpOverlay(self.root, self.toggle_help, self.library.root.parent)
 
     # ---- keeping the tools pane in sync ---------------------------------
     def _refresh_tool_buttons(self):
@@ -1347,16 +1606,22 @@ HELP_TEXT = [
     ("SAVE", "write the open drawing to disk now (every stroke is also autosaved)"),
     ("DRAW / ERASE / FILL", "paint one square · clear one square · flood the connected area"),
     ("UNDO / REDO", "step back / forward, one stroke at a time (a drag or a fill is one stroke)"),
-    ("SYMMETRY", "place a bar on the canvas; anything painted along it is mirrored across it"),
-    ("  │ 90° / ─ 180°", "the bar stands up (mirrors left↔right) or lies flat (mirrors top↔bottom)"),
-    ("  length", "how many cells the bar covers, centred where you click"),
     ("#rrggbb  +", "the ink. Click to type a new code, double-click to select it, + adds it to favourites"),
     ("Favourite colours", "your own set — right-click a swatch to remove it"),
     ("Ready colours", "Pixel Pomo's theme tones plus pixel-art staples"),
     ("Colour", "hue strip on top, light/dark square below; click or drag"),
+    ("Symmetry: OFF", "plain painting"),
+    ("Symmetry: MIRROR", "a bar stands on the canvas; anything painted along it is mirrored across it. "
+                        "Press ON the bar and drag to move it, or PLACE BAR and click a new spot"),
+    ("Symmetry: STICK", "every click paints `length` cells in one go — to the right (─ 180°) or downward (│ 90°)"),
+    ("  │ 90° / ─ 180°", "the bar's direction: standing or lying"),
+    ("  length", "how many cells the bar covers (MIRROR: centred on the click; STICK: starting at it)"),
     ("1x / squint", "the drawing at real size, and at squint-test distance"),
     ("W × H", "the drawing's size — click it to resize (one undo step)"),
+    ("UPDATE", "checks GitHub for a newer kit. Windows updates itself (your drawings are untouched, and "
+               "backed up first); macOS opens the download page"),
     ("+ NEW DRAWING", "a blank drawing at a garden size: flower, bush, rock, tree, or custom"),
+    ("IMPORT PNG…", "bring in art from Procreate/Aseprite/anything; it is saved into the library at once"),
     ("⋮", "on a library row: Duplicate, Export PNG/JPG/engine sprite, Rename, Species, Size, Delete"),
     ("", None),
     ("KEYBOARD", None),
@@ -1364,7 +1629,7 @@ HELP_TEXT = [
     ("{mod}+Z / {mod}+Y", "undo / redo  ({mod}+Shift+Z also redoes)"),
     ("{mod}+N", "new drawing"),
     ("B / E / F", "brush / eraser / fill"),
-    ("M", "symmetry on / off"),
+    ("M", "symmetry: OFF → MIRROR → STICK"),
     ("+ / −  or mouse wheel", "zoom in / out"),
     ("Right-click on the canvas", "eyedropper: the colour under the cursor becomes the ink"),
     ("F1 / Esc", "open / close this help"),
@@ -1375,13 +1640,13 @@ class HelpOverlay(tk.Frame):
     """Every button and key, on a panel over the main window; × or Esc closes
     it (item 15)."""
 
-    def __init__(self, parent, on_close):
+    def __init__(self, parent, on_close, data_dir=None):
         super().__init__(parent, bg=theme.PANEL, highlightthickness=1,
                          highlightbackground=theme.ACCENT)
         self.place(relx=0.5, rely=0.5, anchor="center")
         head = theme.frame(self, bg=theme.PANEL)
         head.pack(fill="x", padx=14, pady=(10, 4))
-        theme.label(head, "Pixel Pomo Art Kit \u2014 help", bg=theme.PANEL,
+        theme.label(head, f"Pixel Pomo Art Kit v{VERSION} \u2014 help", bg=theme.PANEL,
                     font=theme.FONT_BOLD).pack(side="left")
         theme.button(head, "\u00d7", on_close, padx=8, pady=0, font=theme.FONT_BOLD,
                      bg=theme.PANEL, activebackground=theme.PANEL_HI).pack(side="right")
@@ -1404,4 +1669,14 @@ class HelpOverlay(tk.Frame):
                 theme.label(body, text.replace("{mod}", mod), bg=theme.PANEL,
                             justify="left", wraplength=460).grid(row=r, column=1, sticky="w")
             r += 1
+        if data_dir is not None:
+            # Where the work is — so nobody hunts for it beside the program.
+            foot = theme.frame(self, bg=theme.PANEL)
+            foot.pack(fill="x", padx=14, pady=(0, 12))
+            theme.label(foot, "Your drawings:", bg=theme.PANEL, fg=theme.ACCENT,
+                        font=theme.FONT_BOLD).pack(side="left")
+            theme.label(foot, str(data_dir), bg=theme.PANEL, font=theme.FONT_MONO,
+                        fg=theme.WORK).pack(side="left", padx=(8, 8))
+            theme.button(foot, "OPEN FOLDER", lambda: paths.open_in_file_manager(data_dir),
+                         padx=6, pady=1).pack(side="left")
         self.lift()

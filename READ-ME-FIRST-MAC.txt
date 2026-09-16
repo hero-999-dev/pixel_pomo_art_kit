@@ -102,6 +102,17 @@ see "SAVE FAILED" there, tell the developer — it means the app cannot
 write to its folder.
 
 
+STEP 6 — UPDATES
+----------------
+The UPDATE button (bottom right, next to HELP) checks GitHub. When a new
+version exists the button says "UPDATE * vX.Y.Z". Click it and the
+download page opens. Then repeat STEP 1 to 3 with the new zip: drag the
+new PixelPomoArtKit.app over the old one in Applications.
+
+Your drawings are in Documents/PixelPomoArtKit, NOT inside the app, so
+replacing the app never touches them.
+
+
 CONTROLS
 --------
   Left click       draw (one click, one square)
@@ -109,7 +120,7 @@ CONTROLS
                    (two-finger tap, or hold Control and click)
   Drag             continuous line
   b / e / f        brush / eraser / fill bucket (paints the connected area)
-  m                symmetry on / off
+  m                symmetry: OFF -> MIRROR -> STICK
   Cmd+S            save                Cmd+N   new drawing
   Cmd+Z            undo                Cmd+Shift+Z or Cmd+Y   redo
                    (Ctrl works too, if that is what your hands know)
@@ -121,22 +132,29 @@ CONTROLS
                    code, Enter applies. Double-click selects it to copy.
                    "+" beside it adds the colour to your favourites.
                    Right-click a favourite to remove it.
-  SYMMETRY         turn it on, then click the canvas where the bar should
-                   stand. "| 90" = standing bar (mirrors left/right),
-                   "- 180" = lying bar (mirrors top/bottom). The number is
-                   how many squares long it is. Painting along the bar is
-                   mirrored across it.
+  SYMMETRY         under the colours. Three modes:
+                   OFF     normal painting.
+                   MIRROR  click the canvas where the bar should stand.
+                           "| 90" = standing bar (mirrors left/right),
+                           "- 180" = lying bar (mirrors top/bottom).
+                           "length" = how many squares long. Painting along
+                           the bar is mirrored across it. To MOVE the bar:
+                           press on it and drag, or PLACE BAR and click.
+                   STICK   every click paints "length" squares in one go —
+                           to the right (- 180) or downward (| 90).
 
 
 THE THREE PANES
 ---------------
   Left    your drawings. Click one to open it.
           "+ NEW DRAWING" asks for a size: Flower, Bush, Rock, Tree, or your own.
+          "IMPORT PNG..." brings in art from another program and saves it
+          into your library right away.
           The  menu on each row: Duplicate, Export, Rename, Species, Size, Delete.
   Middle  the canvas.
-  Right   SAVE, tools, colours; and in the bottom-right corner two live
-          previews — one at real size, one at a "squint test" distance —
-          the drawing's size (click it to resize), and HELP.
+  Right   SAVE, tools, colours, symmetry; and in the bottom-right corner
+          two live previews — one at real size, one at a "squint test"
+          distance — the drawing's size (click it to resize), UPDATE, HELP.
 
 
 SENDING YOUR WORK BACK

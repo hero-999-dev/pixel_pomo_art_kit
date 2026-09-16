@@ -4,6 +4,111 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.5.0 — a symmetry bar that moves, STICK, import, a portable program and updates that keep the drawings
+**Date:** 2026-09-16
+
+**Prompt (Turkish, abridged):** the symmetry bar gets stuck and cannot be
+moved afterwards; put symmetry under the colour panel and make it richer — a
+"bar placed" mode without the line through the middle, and a "stick" version
+("there are five purple cells over there, you click in line and five purple
+cells appear"); an IMPORT under NEW DRAWING that saves imported sprites into
+the program; moving the .exe must never lose anything; an UPDATE next to HELP
+— Windows updates itself from GitHub, macOS says a new version is out and opens
+the page — and, above all, **an update must never take anyone's drawings.**
+
+### The symmetry bar (`symmetry.py`, the block under Colour)
+
+"Stuck" was real: after placing, the only way to move the bar was a click on
+the hint text, which nobody found. Now **pressing on the bar picks it up** —
+drag it, release to drop (the cursor turns into the move cross over it); a
+**PLACE BAR** button re-arms click-to-place; nothing is painted or recorded
+while moving. The line through the middle is gone: the bar is one cell wide,
+just its outline is drawn.
+
+Three modes, one row of buttons, `m` cycles them:
+
+- **OFF** — plain painting.
+- **MIRROR** — the bar as before.
+- **STICK** — every click paints `length` cells in one go, to the right
+  (`─ 180°`) or downward (`│ 90°`), starting at the click. A ghost of the run
+  follows the cursor so it can be lined up. `symmetry.stick()` /
+  `expand_stick()` are pure; a stick of length 1 is an ordinary click.
+
+Orientation, length and mode persist in `settings.json`; an old settings file
+without a mode still reads.
+
+### IMPORT PNG… (`app.import_png`)
+
+Under NEW DRAWING. `engine_io.import_png` existed since #v34.10 (profile →
+sRGB, alpha snapped, x16 downscale) but had no button. Several files at once;
+each becomes a drawing and is **saved into the library immediately**; a
+summary names what came in and what was changed, and what was refused and why.
+
+### Where the drawings live (`paths.py`) — the portable program
+
+Up to v2.4.0 the Windows build wrote `library/` **beside the .exe**. Move the
+.exe, unzip a new version into a new folder, and the drawings were "gone".
+Nothing can be stored *inside* a running .exe — it is read-only while it runs,
+and a new version is a different file — so the rule is the opposite: **the
+data never lives next to the program.** Frozen Windows builds now use
+`%LOCALAPPDATA%\PixelPomoArtKit\` (Mac stays on `~/Documents/PixelPomoArtKit`,
+source runs stay at the repo root). The .exe can sit anywhere, be moved,
+deleted or replaced; the drawings stay put. The first run of v2.5.0 finds an
+old beside-the-exe `library/` and **copies** (never moves) every drawing it
+does not already have, then says so in a dialog naming the new folder. The
+help overlay shows the folder and has an OPEN FOLDER button.
+
+### UPDATE (`updater.py`, `version.py`)
+
+One `VERSION` string; the release tag is `v` + it, and the spec reads it for
+the .app's plist. UPDATE asks `api.github.com/repos/…/releases/latest` (the
+repo is public; no token) on a worker thread. A frozen build also checks once,
+quietly, 2.5 s after opening: a newer release turns the button into
+`UPDATE ● vX.Y.Z`, anything else says nothing.
+
+- **Windows** downloads `PixelPomoArtKit-windows.zip` (progress in the status
+  label, to a `.part` file first), **zips the library to
+  `<data>/backups/library-before-<tag>-<stamp>.zip`**, unpacks the new .exe
+  beside the running one as `.new.exe`, writes a small `.cmd` that waits for
+  this process to exit, keeps the old .exe as `PixelPomoArtKit.old.exe`
+  (rename it back to revert), moves the new one into place and relaunches —
+  then the kit saves and closes. A running .exe cannot overwrite itself, hence
+  the hand-off. **Exercised for real** with the built v2.5.0 .exe: staged, hand
+  off, exited, swapped, relaunched, data folder intact. The first dry run did
+  NOT swap: a `DETACHED_PROCESS` cmd has no console and `tasklist | find`
+  blocks on the pipe forever; `CREATE_NO_WINDOW` gives it a hidden console and
+  it works.
+- **macOS / source** show "vX is available" and open the release page.
+  Replacing a `.app` behind Gatekeeper's back is what quarantine exists to
+  stop, and the artist already has the two-step recipe.
+
+**Why an update cannot lose drawings, twice over:** the data folder is not
+beside the program on either platform, so swapping the program cannot reach
+it; and the Windows updater zips the library before touching anything.
+
+### Layout
+
+The pane had to fit a 820px window with the symmetry block added: swatches
+went from six a row to eight, the shade square from 120 to 100px, the squint
+preview from 8x to 6x.
+
+**Tests:** 120 → 145. New `test_paths.py` (6: LOCALAPPDATA on frozen Windows
+and the legacy folder it migrates from, Documents on Mac, migration copies
+drawings + settings and leaves the old folder, never overwrites, is
+idempotent) and `test_updater.py` (9: version parsing incl. `-rc` suffixes,
+`Release.is_newer`, `check()` against a fake opener with the right URL and
+User-Agent, a bad payload raises, `download()` reports progress and leaves no
+`.part`, `backup_library()` zips every drawing, `stage_windows()` unpacks the
+.exe and writes a script naming the pid / `.old.exe` / the moves / the
+relaunch, a zip with no .exe is refused); `test_symmetry.py` +4 (stick runs
+right/down, length 1 = a click, clamping, `expand_stick` dedupes);
+`test_settings.py` +1 (old file without a mode); the smoke suite +5 (STICK
+paints a run as one undo and persists, pressing on the bar drags it without
+painting or recording a stroke and PLACE BAR re-arms, `m` cycles the three
+modes, `import_png` lands in the library saved with a row, a newer release
+lights the UPDATE button and a current one / a failed silent check do not).
+The old "frozen Windows writes beside the exe" test now asserts the opposite.
+
 ## v2.4.0 — the artists' round: matcha, symmetry, favourites, and no more freezing
 **Date:** 2026-09-16
 

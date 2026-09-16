@@ -72,6 +72,37 @@ class Bar:
         return Bar(self.orientation, self.length, col, row)
 
 
+OFF, MIRROR, STICK = "off", "mirror", "stick"
+MODES = (OFF, MIRROR, STICK)
+
+
+def stick(orientation, length, col, row):
+    """The STICK mode (#v2.5.0): one click paints a whole run.
+
+    `length` cells starting AT the clicked cell and running to the right
+    (horizontal) or downward (vertical) — "there are five purple cells over
+    there; click in line with them and five purple cells appear". The
+    clicked cell comes first, so a stick of length 1 is an ordinary click."""
+    if orientation not in ORIENTATIONS:
+        raise ValueError(f"orientation must be one of {ORIENTATIONS}, got {orientation!r}")
+    length = max(MIN_LENGTH, min(MAX_LENGTH, int(length)))
+    if orientation == HORIZONTAL:
+        return [(col + i, row) for i in range(length)]
+    return [(col, row + i) for i in range(length)]
+
+
+def expand_stick(orientation, length, cells):
+    """Every cell of `cells` grown into its stick, in order, no duplicates."""
+    out = []
+    seen = set()
+    for c, r in cells:
+        for cell in stick(orientation, length, c, r):
+            if cell not in seen:
+                seen.add(cell)
+                out.append(cell)
+    return out
+
+
 def expand(bar, cells):
     """`cells` plus each one's twin across `bar` (or unchanged if no bar).
     Order is preserved and twins follow their originals, so a Bresenham

@@ -45,6 +45,26 @@ class BarTest(unittest.TestCase):
                          (HORIZONTAL, 6, 9, 9))
 
 
+class StickTest(unittest.TestCase):
+    def test_a_horizontal_stick_runs_to_the_right_from_the_click(self):
+        self.assertEqual(symmetry.stick(HORIZONTAL, 5, 3, 8),
+                         [(3, 8), (4, 8), (5, 8), (6, 8), (7, 8)])
+
+    def test_a_vertical_stick_runs_downward(self):
+        self.assertEqual(symmetry.stick(VERTICAL, 3, 3, 8), [(3, 8), (3, 9), (3, 10)])
+
+    def test_length_one_is_an_ordinary_click_and_length_is_clamped(self):
+        self.assertEqual(symmetry.stick(HORIZONTAL, 1, 2, 2), [(2, 2)])
+        self.assertEqual(len(symmetry.stick(HORIZONTAL, 0, 2, 2)), symmetry.MIN_LENGTH)
+        self.assertEqual(len(symmetry.stick(HORIZONTAL, 500, 2, 2)), symmetry.MAX_LENGTH)
+        with self.assertRaises(ValueError):
+            symmetry.stick("sideways", 3, 0, 0)
+
+    def test_expand_stick_grows_every_cell_without_duplicates(self):
+        out = symmetry.expand_stick(HORIZONTAL, 3, [(0, 0), (1, 0)])
+        self.assertEqual(out, [(0, 0), (1, 0), (2, 0), (3, 0)])
+
+
 class ExpandTest(unittest.TestCase):
     def test_no_bar_returns_the_cells_unchanged(self):
         self.assertEqual(expand(None, [(1, 1), (2, 2)]), [(1, 1), (2, 2)])

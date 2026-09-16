@@ -1,9 +1,9 @@
 # Recreation Prompt — Pixel Pomo Art Kit
 
-**Version 2 — 2026-09-16 (v2.4.0).** Written once the app was feature-complete,
+**Version 3 — 2026-09-16 (v2.5.0).** Written once the app was feature-complete,
 so it describes what the app actually does rather than what was planned. Keep
-it updated whenever the app's real behaviour changes. The v2.4.0 additions are
-in the section "The artists' round" at the end of the prompt.
+it updated whenever the app's real behaviour changes. The v2.4.0 and v2.5.0
+additions are the last two sections of the prompt.
 
 Paste the prompt below into a fresh AI chat, or hand it to a developer, to
 rebuild the Pixel Pomo Art Kit from nothing.
@@ -207,7 +207,39 @@ rebuild the Pixel Pomo Art Kit from nothing.
 >   letter grid in code; drawn at run time for the title bar/Dock and
 >   rendered by a script into `.png`/`.ico`/`.icns` for the .exe, the .app,
 >   the README and both release zips.
+>
+> ### Portable program, self-update, symmetry modes, import (v2.5.0)
+> - **The data never lives beside the program.** Frozen Windows builds keep
+>   drawings, exports, settings and update backups in
+>   `%LOCALAPPDATA%\PixelPomoArtKit`; frozen Mac builds in
+>   `~/Documents/PixelPomoArtKit`; source runs at the repo root. So the .exe
+>   can be moved, re-downloaded or replaced and nothing is lost. On first run,
+>   copy (never move) drawings from an old beside-the-exe `library/` that the
+>   new folder does not already have, and tell the user where things are now.
+>   Show the folder in the help panel with an "open folder" button.
+> - **Update from GitHub Releases.** Keep one `VERSION` string; the tag is
+>   `v` + it. An UPDATE button next to HELP asks the public releases API on a
+>   worker thread; a frozen build also checks once quietly on start and only
+>   lights the button if something newer exists. Windows: download the zip
+>   (to a `.part` first), **zip the library into a dated backup**, unpack the
+>   new .exe beside the running one, write a small hidden-console cmd script
+>   that waits for this pid to exit, keeps the old .exe as `.old.exe`, moves
+>   the new one into place, relaunches and deletes itself — then save and
+>   quit. (Give that cmd a hidden console, not none: a fully detached cmd
+>   hangs on `tasklist | find`.) macOS and source runs: say a new version
+>   exists and open the release page. Never let an update touch the data
+>   folder.
+> - **Symmetry under the colour panel, three modes** (`m` cycles): OFF;
+>   MIRROR — the bar, drawn as an outline only (no line through the middle),
+>   movable by pressing on it and dragging (no stroke recorded) or via a
+>   PLACE BAR button that re-arms click-to-place; STICK — each click paints
+>   `length` cells in one run to the right (horizontal) or downward
+>   (vertical), starting at the click, with a ghost of the run under the
+>   cursor. Mode persists with orientation and length.
+> - **IMPORT PNG…** under NEW DRAWING: several files at once through the
+>   existing PNG importer, each saved into the library at once, with a
+>   summary of what was changed or refused.
 
 ---
 
-120 tests passing at this version (`python -m unittest discover -s tests -v`).
+145 tests passing at this version (`python -m unittest discover -s tests -v`).
