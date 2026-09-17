@@ -93,6 +93,22 @@ class CodecTest(unittest.TestCase):
             store.from_dict(data)
 
 
+class LabelCodecTest(unittest.TestCase):
+    def test_label_round_trips(self):
+        d = Drawing.blank(16, 2, PAL, name="x", species="lale", label="wip")
+        again = store.from_dict(store.to_dict(d))
+        self.assertEqual(again.label, "wip")
+
+    def test_a_file_without_a_label_or_with_a_bad_one_reads_as_unlabelled(self):
+        data = store.to_dict(Drawing.blank(16, 2, PAL, name="x", species="lale"))
+        del data["label"]
+        self.assertEqual(store.from_dict(data).label, "")
+        data["label"] = 42
+        self.assertEqual(store.from_dict(data).label, "")
+        data["label"] = "  tree "
+        self.assertEqual(store.from_dict(data).label, "tree")
+
+
 class SaveLoadTest(unittest.TestCase):
     def test_save_overwrites_atomically_leaving_no_temp_files(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -162,7 +178,9 @@ class LibraryTest(unittest.TestCase):
         again = store.Library(Path(self.tmp.name))
         again.load_all()
         loaded = again.drawings[0]
-        original = store.to_dict(loaded)
+        # the file as it was on disk (load_all may fill a default label in
+        # memory for a pre-#v2.6.0 file; the .bak is the DISK starting point)
+        original = json.loads(again._paths[id(loaded)].read_text(encoding="utf-8"))
         loaded.paint(0, 0, "m")
         again.save(loaded)
         loaded.paint(1, 0, "m")
@@ -171,6 +189,17 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual(len(baks), 1)
         self.assertEqual(json.loads(baks[0].read_text(encoding="utf-8")), original,
                          "the .bak is the session's starting point, not a later state")
+
+    def test_loading_an_old_unlabelled_library_gives_seeded_kinds_their_label(self):
+        # #v2.6.0: a library written before labels existed
+        self.lib.add(Drawing.blank(16, 4, PAL, name="old flower", species="lale"))
+        self.lib.add(Drawing.blank(32, 32, PAL, name="old tree", species="tree"))
+        self.lib.add(Drawing.blank(8, 8, PAL, name="mine", species=""))
+        again = store.Library(Path(self.tmp.name))
+        again.load_all()
+        by_name = {d.name: d.label for d in again.drawings}
+        self.assertEqual(by_name, {"old flower": "flower", "old tree": "tree", "mine": ""})
+        self.assertEqual(again.labels(), ["flower", "tree"])
 
     def test_a_corrupt_file_is_skipped_not_fatal(self):
         self.lib.seed_from_engine()

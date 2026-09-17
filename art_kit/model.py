@@ -59,12 +59,52 @@ class Drawing:
     model: int
     cells: list
     palette: Palette
+    # The artist's own tag — "flower", "tree", "wip", anything (#v2.6.0).
+    # Free text, filterable in the library; nothing engine-side reads it.
+    label: str = ""
 
     @classmethod
-    def blank(cls, width, height, palette, name="untitled", species="", model=0):
+    def blank(cls, width, height, palette, name="untitled", species="", model=0, label=""):
         cells = [[None] * width for _ in range(height)]
         return cls(name=name, species=species, model=model, cells=cells,
-                   palette=palette)
+                   palette=palette, label=label)
+
+    def count(self):
+        """How many cells are painted."""
+        return sum(1 for row in self.cells for c in row if c is not None)
+
+    def row_count(self, row):
+        return sum(1 for c in self.cells[row] if c is not None) if 0 <= row < self.height else 0
+
+    def col_count(self, col):
+        if not (0 <= col < self.width):
+            return 0
+        return sum(1 for r in self.cells if r[col] is not None)
+
+    def region(self, c0, r0, c1, r1):
+        """A copy of the cells in the inclusive rectangle, clipped to the
+        grid, as (cells, width, height). Rows/cols outside come back as None."""
+        c0, c1 = sorted((c0, c1))
+        r0, r1 = sorted((r0, r1))
+        out = [[self.get(c, r) for c in range(c0, c1 + 1)] for r in range(r0, r1 + 1)]
+        return out, c1 - c0 + 1, r1 - r0 + 1
+
+    def stamp(self, cells, col, row, skip_empty=True):
+        """Paint a block of cells with its top-left at (col, row). Empty
+        cells in the block leave the drawing alone unless `skip_empty` is
+        False. Cells that fall outside the grid are dropped."""
+        for dr, line in enumerate(cells):
+            for dc, value in enumerate(line):
+                if value is None and skip_empty:
+                    continue
+                self.paint(col + dc, row + dr, value)
+
+    def clear_region(self, c0, r0, c1, r1):
+        c0, c1 = sorted((c0, c1))
+        r0, r1 = sorted((r0, r1))
+        for r in range(r0, r1 + 1):
+            for c in range(c0, c1 + 1):
+                self.erase(c, r)
 
     @property
     def height(self):

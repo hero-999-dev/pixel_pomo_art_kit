@@ -265,6 +265,64 @@ class ExportTest(unittest.TestCase):
             self.assertFalse((Path(tmp) / "x.png").exists())
 
 
+class ArtistExportsTest(unittest.TestCase):
+    """#v2.6.0: the artist's sprite export takes any size and any name, and
+    PNGs can carry a grid."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_export_sprite_writes_any_size_at_x16(self):
+        d = Drawing.blank(32, 20, engine_io._forest_palette(), name="My Tree!")
+        d.paint(0, 0, (1, 2, 3, 255))
+        path = engine_io.export_sprite(d, Path(self.tmp.name) / "anything.png")
+        from PIL import Image
+        img = Image.open(path)
+        self.assertEqual(img.size, (32 * 16, 20 * 16))
+        self.assertEqual(img.getpixel((5, 5)), (1, 2, 3, 255))
+        # the strict developer export still refuses what the engine cannot load
+        with self.assertRaises(engine_io.ExportRefused):
+            engine_io.export_engine_sprite(
+                Drawing.blank(32, 20, engine_io._forest_palette(), species="lale"), self.tmp.name)
+
+    def test_suggested_names(self):
+        self.assertEqual(engine_io.suggested_sprite_name(engine_io.import_flower("lale", 1)),
+                         "flower_lale_1.png")
+        self.assertEqual(engine_io.suggested_sprite_name(engine_io.import_forest_prop("tree", 6)),
+                         "tree_06.png")
+        mine = Drawing.blank(8, 8, engine_io._forest_palette(), name="Sun Flower 2!")
+        self.assertEqual(engine_io.suggested_sprite_name(mine), "sun_flower_2.png")
+        self.assertEqual(engine_io.suggested_sprite_name(
+            Drawing.blank(8, 8, engine_io._forest_palette(), name="!!!")), "sprite.png")
+
+    def test_export_png_with_grid_draws_closed_lines_on_every_boundary(self):
+        d = Drawing.blank(3, 2, engine_io._forest_palette())
+        d.paint(1, 0, (200, 0, 0, 255))
+        path = engine_io.export_png(d, Path(self.tmp.name) / "g.png", scale=8, grid="#10FF20")
+        from PIL import Image
+        img = Image.open(path)
+        line = (0x10, 0xFF, 0x20, 255)
+        self.assertEqual(img.size, (24, 16))
+        for x in (0, 8, 16, 23):
+            self.assertEqual(img.getpixel((x, 5)), line, f"vertical line at x={x}")
+        for y in (0, 8, 15):
+            self.assertEqual(img.getpixel((12, y)), line, f"horizontal line at y={y}")
+        self.assertEqual(img.getpixel((12, 4)), (200, 0, 0, 255), "the cell itself keeps its colour")
+        self.assertEqual(img.getpixel((4, 4)), (0, 0, 0, 0), "empty stays transparent")
+        plain = engine_io.export_png(d, Path(self.tmp.name) / "p.png", scale=8)
+        self.assertEqual(Image.open(plain).getpixel((0, 5)), (0, 0, 0, 0), "no grid unless asked")
+
+    def test_default_labels(self):
+        self.assertEqual(engine_io.default_label("lale"), "flower")
+        self.assertEqual(engine_io.default_label("gul"), "flower")
+        self.assertEqual(engine_io.default_label("tree"), "tree")
+        self.assertEqual(engine_io.default_label("rock"), "rock")
+        self.assertEqual(engine_io.default_label(""), "")
+        self.assertEqual(engine_io.default_label("whatever"), "")
+        self.assertTrue(all(d.label for d in engine_io.import_all()), "everything seeded is labelled")
+
+
 class ForestPropsAreEditable(unittest.TestCase):
     """#v34.8 — the artist asked to draw the forest, not just the flowers."""
 

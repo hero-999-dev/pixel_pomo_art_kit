@@ -33,6 +33,7 @@ def to_dict(drawing):
         "model": drawing.model,
         "kind": drawing.kind,
         "palette": asdict(drawing.palette),
+        "label": drawing.label,
         "cells": cells,
     }
 
@@ -85,8 +86,13 @@ def from_dict(data):
             raise CorruptDrawing(f"unknown kind {stored_kind!r}")
     except (KeyError, TypeError) as exc:
         raise CorruptDrawing(f"missing or malformed field: {exc}") from exc
+    # Optional (#v2.6.0): files from older versions have no label; a
+    # non-string one is a hand-edit gone wrong, not worth losing the drawing.
+    label = data.get("label", "")
+    if not isinstance(label, str):
+        label = ""
     return Drawing(name=name, species=species, model=model, cells=cells,
-                   palette=palette)
+                   palette=palette, label=label.strip())
 
 
 def save(drawing, path):
@@ -138,9 +144,18 @@ class Library:
             except CorruptDrawing:
                 skipped.append(path)
                 continue
+            if not drawing.label:
+                # A library from before labels existed: the seeded flowers and
+                # forest props at least know what kind of thing they are.
+                from art_kit import engine_io
+                drawing.label = engine_io.default_label(drawing.species)
             self.drawings.append(drawing)
             self._paths[id(drawing)] = path
         return skipped
+
+    def labels(self):
+        """Every distinct label in use, sorted, empties left out."""
+        return sorted({d.label for d in self.drawings if d.label})
 
     def _free_path(self, drawing):
         base = _slug(f"{drawing.species}_{drawing.model}_{drawing.name}")

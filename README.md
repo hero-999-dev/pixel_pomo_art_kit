@@ -142,15 +142,17 @@ Three panes, left to right, in the game's **matcha** theme (the tones are
 `PixelTheme.matcha` from the app itself, so the kit and the game look like one
 product — dark title bar on Windows included):
 
-- **Library.** A scrollable list, one row per drawing: a small thumbnail
-  (rendered the same way the canvas is), the drawing's name, and a `⋮` menu —
-  Duplicate, Export PNG…, Export JPG…, Export engine sprite…, Rename…,
-  Species…, Size…, Delete. Clicking a row opens it in the canvas.
+- **Library.** `▾ ALL · 59` at the top filters by **label**. Below, one row
+  per drawing: a small thumbnail (rendered the same way the canvas is), the
+  name, the label chip (click it to change the label — the shipped drawings
+  start as `flower` / `tree` / `bush` / `rock`, imports as `import`, and you
+  can type anything), and a `⋮` menu — Duplicate, Export PNG…, Export PNG
+  with grid…, Export JPG…, Export engine sprite…, Rename…, Label…, Size…,
+  Delete. Clicking a row opens it in the canvas.
   `+ NEW DRAWING` (or `Ctrl+N`) opens a **size dialog**: the sizes the garden
   actually uses — Flower 16×15, Bush and Rock 16×16, Tree 32/48/64 for 2/3/4
   tiles, all read from the engine, not typed in — or a custom width × height
-  up to 64. `Species…` names a brand-new flower so it can export as an engine
-  sprite. **IMPORT PNG…** below it brings outside art in (Procreate, Aseprite,
+  up to 64. **IMPORT PNG…** below it brings outside art in (Procreate, Aseprite,
   anything): colour profile converted to sRGB, anti-aliasing snapped, x16
   exports scaled back down — several files at once, each **saved into the
   library immediately**, with a summary of what was changed or refused.
@@ -160,16 +162,33 @@ product — dark title bar on Windows included):
   trail of dots, and **what you paint is exactly what appears**: one click,
   one square. **Right-click is an eyedropper**: the cell under the cursor
   becomes the ink. The mouse wheel (or `+`/`-`) zooms from 4x to 48x, with
-  scrollbars so the edge pixels stay reachable at any zoom; empty cells show
-  a checkerboard; grid lines appear once each cell is 8px or larger. A
+  scrollbars so the edge pixels stay reachable at any zoom — and dragging
+  against the edge of what you can see scrolls that way, one cell at a time;
+  empty cells show a checkerboard in your two grid colours; cell lines appear
+  once each cell is 8px or larger (WITH / WITHOUT GRID turns them off). A
   one-pixel line runs the full height between the canvas and the tools.
+  **Under the canvas:** `pixels N` plus the count in the row and column under
+  the cursor (or in the selection), the drawing's colours left to right —
+  most-used first, with code and count, click one to use it — and the cell
+  and colour under the cursor.
 - **Tools**, top to bottom:
   - **SAVE**, with a `saved HH:MM:SS` status beside it. Every stroke is
     autosaved the moment it ends anyway; SAVE (or `Ctrl+S`) is the artist's
     reassurance, and the one save that complains out loud if it fails.
-  - **DRAW / ERASE / FILL** — the selected tool is the accent-filled button,
-    and the last tool you used is the one selected next time you open the
-    kit. **UNDO / REDO.**
+  - **DRAW / ERASE / FILL / SELECT** — the selected tool is the accent-filled
+    button, and the last tool you used is the one selected next time you open
+    the kit. **UNDO / REDO.** **Eraser W × H** sets how many cells the eraser
+    clears at once, centred on the pointer (a ghost shows the footprint).
+  - **SELECT** (`s`): drag a rectangle. `Ctrl+C` copies it, `Ctrl+X` cuts,
+    `Delete` clears. `Ctrl+V` drops the copy as a **floating block** you can
+    drag with the mouse or nudge with the arrow keys; `Enter` (or a click
+    outside) stamps it down as one undo step and leaves it selected. Press
+    inside a selection and drag to **move** that part of the drawing. `Esc`
+    never destroys anything: it drops a floating block where it is, then
+    clears the selection.
+  - **Grid** — `colour 1` / `colour 2`, the two checkerboard tones behind the
+    art: type a code and Enter, `…` opens a colour picker, DEFAULT restores
+    the matcha tones.
   - **The ink**, shown as its bare `#rrggbb` code on a swatch of itself.
     Click it and type a new code (Enter applies, Esc cancels); double-click
     selects the whole code to copy; `+` adds it to your favourites.
@@ -190,11 +209,12 @@ product — dark title bar on Windows included):
       stroke and its mirror are one undo. **Press on the bar and drag to move
       it** (the cursor becomes a move cross over it), or **PLACE BAR** and
       click a new spot. The bar is drawn as an outline only — it is one cell
-      wide.
+      wide. **Drag either end of the bar** to change its length on the canvas.
     - **STICK** — every click paints `length` cells in one go, to the right
       (`─ 180°`) or downward (`│ 90°`), starting at the click: "five purple
       cells over there — click in line, five purple cells here". A ghost of
       the run follows the cursor.
+  - **WITH GRID / WITHOUT GRID** — the cell lines over the drawing.
   - **Bottom-right corner:** the two live previews — **1x** actual size and a
     fixed **squint**-test scale, both rendered through the same engine code
     as every export — the drawing's **W × H** (click it to resize; one undo
@@ -203,8 +223,10 @@ product — dark title bar on Windows included):
     with `×`, `Esc` or `F1`.
 
 Keyboard: `Ctrl+S` save, `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo,
-`Ctrl+N` new drawing, `b` / `e` / `f` draw/erase/fill, `m` symmetry
-OFF → MIRROR → STICK, `+` / `-` zoom, `F1` help. On macOS `Cmd` works everywhere `Ctrl` does, and
+`Ctrl+N` new drawing, `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy / cut / paste the
+selection, `Enter` drop a floating block, `Delete` clear the selection, arrow
+keys nudge the block, `b` / `e` / `f` / `s` draw/erase/fill/select, `m`
+symmetry OFF → MIRROR → STICK, `+` / `-` zoom, `F1` help. On macOS `Cmd` works everywhere `Ctrl` does, and
 right-click is also Control-click. The title bar always names the drawing you
 are editing.
 
@@ -216,20 +238,22 @@ drawing touched in the session before quitting.
 | Export | What it produces | Use it for |
 |---|---|---|
 | **Export PNG…** | An RGBA PNG at 16x (the export dialog just asks where to save it; `export_png`/`export_jpg` underneath both take a `scale` argument if you're driving them from a script instead of the window). | Sharing a look, a reference — anything that isn't shipping straight into the game. |
+| **Export PNG with grid…** | The same, with a one-pixel line on every cell boundary, the outer border closed on all four sides. | Work in progress where the cells have to be countable. |
 | **Export JPG…** | The same render flattened onto white (JPEG has no alpha channel, so transparency has to become some solid colour — the underlying `export_jpg` takes the background as an explicit argument, the window just always calls it with the white default today). | Quick previews outside the game; never for shipping, since the transparency is gone. |
-| **Export engine sprite…** | The actual file(s) the game loads: `flower_<species>_<model>.png` (or `tree_07.png` for a forest prop) at the engine's real x16 scale, through the same upscale/write code the shipped assets were made with. Exporting a drawing's model 0 also writes `flower_<species>.png`, the shop thumbnail. Refuses a drawing that isn't exactly 16 cells wide, or has no species set. The save dialog opens on a repo-local `exports/` folder — never the game's asset tree, which is read-only to this app — behind a confirmation that names exactly what it will overwrite. | **Hand this back to the developer.** Drop the output into the game's `assets/objects/` and the artwork ships. |
+| **Export engine sprite…** | The x16 engine-scale RGBA sprite of **any** drawing at **any** size, to a file **you name** in one ordinary save dialog (the default name is the engine's own — `flower_lale_1.png`, `tree_07.png` — for a shipped species or prop, else a slug of the drawing's name). Replacing an existing file is the system's own question; there is no second confirmation and no 16-wide refusal any more (#v2.6.0). The dialog opens on the kit's `exports/` folder — never the game's asset tree. | **Hand this back to the developer**, who sizes and names it for the garden if it isn't already. The strict, engine-checked writer (`export_engine_sprite`: engine names, engine sizes, refusals) still exists in code for that step. |
 ## Sending a drawing back (for the artist)
 
 Two easy ways, pick either:
 
 - **The lossless one (best):** send the drawing's `.json` file from the
-  `library\` folder next to the app — it is the drawing itself, nothing lost.
-- **The visual one:** `⋮ → Export PNG…` and send that.
+  `library\` folder (HELP → OPEN FOLDER) — it is the drawing itself, nothing
+  lost.
+- **The visual one:** `⋮ → Export PNG…` (or `Export engine sprite…` for the
+  x16 file, named as you like) and send that.
 
-If the drawing is a 16-wide flower with its species set, `⋮ → Export engine
-sprite…` also works and produces the exact files the game loads. Everything
-else — palettes, letter grids, engine source entries — is the developer's
-problem, on purpose: **you draw with real colours, one click one square, and
+Everything else — species ids, palettes, letter grids, engine source entries,
+the exact size and filename the garden wants — is the developer's problem, on
+purpose: **you draw with real colours, one click one square, label it, and
 send it; the developer converts it for the engine behind the scenes.**
 
 ## Developer notes: letters and palettes (not the artist's job)
@@ -258,7 +282,7 @@ same grid, and both release zips carry `icon.png`.
 
 ## Tests
 
-145 tests, all passing:
+168 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

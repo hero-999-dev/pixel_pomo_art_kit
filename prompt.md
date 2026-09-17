@@ -1,9 +1,9 @@
 # Recreation Prompt — Pixel Pomo Art Kit
 
-**Version 3 — 2026-09-16 (v2.5.0).** Written once the app was feature-complete,
+**Version 4 — 2026-09-17 (v2.6.0).** Written once the app was feature-complete,
 so it describes what the app actually does rather than what was planned. Keep
-it updated whenever the app's real behaviour changes. The v2.4.0 and v2.5.0
-additions are the last two sections of the prompt.
+it updated whenever the app's real behaviour changes. The v2.4.0, v2.5.0 and
+v2.6.0 additions are the last three sections of the prompt.
 
 Paste the prompt below into a fresh AI chat, or hand it to a developer, to
 rebuild the Pixel Pomo Art Kit from nothing.
@@ -239,7 +239,51 @@ rebuild the Pixel Pomo Art Kit from nothing.
 > - **IMPORT PNG…** under NEW DRAWING: several files at once through the
 >   existing PNG importer, each saved into the library at once, with a
 >   summary of what was changed or refused.
+>
+> ### Labels, select/copy/paste, the strip under the canvas (v2.6.0)
+> - **Labels replace species in the artist's view.** A drawing carries a
+>   free-text label, saved in its file (missing or malformed → empty). Seeded
+>   art is labelled by kind (`flower`, `tree`, `bush`, `rock`; imports
+>   `import`), and an older library gets those defaults on load. Show the
+>   label as a chip left of each row's ⋮ (click to change: labels in use as
+>   buttons, a field for a new one, "no label"); put `Label…` in the ⋮ menu
+>   in place of `Species…`; a filter button top-left drops a menu of labels
+>   with counts and hides non-matching rows without rebuilding them. A
+>   drawing created or imported under a filter takes that label; one the
+>   filter would hide drops the filter.
+> - **Exports the artist can finish alone.** `Export engine sprite…` is one
+>   ordinary save dialog — editable filename (default the engine's name for
+>   shipped art, else a slug of the drawing's name), any size at x16, the
+>   OS's own replace question, no refusals; keep the strict engine-checked
+>   writer for the developer. Add `Export PNG with grid…`: one-pixel lines
+>   on every cell boundary, the outer border closed on all four sides.
+> - **Under the canvas:** total pixel count plus the count in the row and
+>   column under the cursor (or in the selection); the drawing's colours
+>   left to right, most-used first, with code and count, clickable to become
+>   the ink; the cell and colour under the cursor.
+> - **Grid:** two checkerboard tones as coloured hex entries above the ink,
+>   with a system colour-picker button and DEFAULT; the checker must cover
+>   the whole drawing (partition edges, not `width // 10` blocks) and the
+>   last cell line must be drawn one pixel in so it is visible. WITH GRID /
+>   WITHOUT GRID under Symmetry; the line colour derives from tone 2.
+> - **Eraser W × H**, centred on the pointer, with a ghost footprint.
+> - **Auto-scroll** one cell when a drag comes within a margin of the visible
+>   edge (scroll increments = zoom).
+> - **Resize the symmetry bar by dragging an end** (3+ cells; the other end
+>   stays, dragging past it flips); the middle still moves it.
+> - **SELECT tool (`s`):** drag a rectangle; Ctrl+C / Ctrl+X / Delete on it;
+>   Ctrl+V drops the clipboard as a *floating block* (an image with a dashed
+>   border, not yet on the drawing) that follows a mouse drag or the arrow
+>   keys; Enter or a click outside stamps it as one undo (empty cells leave
+>   the art alone) and leaves the area selected; pressing inside a selection
+>   lifts those cells (one undo) so part of the motif can be moved; Esc
+>   drops the block where it is and then clears the selection — never
+>   destructive; switching tool or drawing drops a block first. Keep the
+>   block helpers (`region`, `stamp`, `clear_region`, counters) pure on the
+>   model.
+> - The tools pane and the help overlay both scroll when the window is too
+>   short for them; the previews / size / UPDATE / HELP stay pinned.
 
 ---
 
-145 tests passing at this version (`python -m unittest discover -s tests -v`).
+168 tests passing at this version (`python -m unittest discover -s tests -v`).

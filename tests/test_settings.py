@@ -65,5 +65,32 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(s.tool, "draw", "a wrong-typed field keeps its default")
 
 
+class SettingsV26Test(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "settings.json"
+
+    def test_grid_colours_default_validate_and_reset(self):
+        s = Settings(self.path)
+        self.assertEqual(s.grid, {"c1": "232F28", "c2": "2A3A30"})
+        s.set_grid(c1="#402020")
+        self.assertEqual(Settings(self.path).grid, {"c1": "402020", "c2": "2A3A30"})
+        s.set_grid(c2="not a colour")
+        self.assertEqual(s.grid["c2"], "2A3A30", "a bad code changes nothing")
+        s.reset_grid()
+        self.assertEqual(s.grid["c1"], "232F28")
+
+    def test_show_grid_and_eraser_persist(self):
+        s = Settings(self.path)
+        self.assertTrue(s.show_grid)
+        self.assertEqual(s.eraser, {"w": 1, "h": 1})
+        s.show_grid = False
+        s.set_eraser(3, 200)
+        again = Settings(self.path)
+        self.assertFalse(again.show_grid)
+        self.assertEqual(again.eraser, {"w": 3, "h": 64}, "clamped to the biggest drawing")
+
+
 if __name__ == "__main__":
     unittest.main()

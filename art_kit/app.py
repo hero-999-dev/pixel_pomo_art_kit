@@ -64,9 +64,10 @@ READY = ["FF5A5F", "E02C6D", "9C1B2E", "F2994A", "F2C94C", "F7EFDD",
 # The tools pane. Every horizontal thing in it — swatch grids, the colour
 # panel, the previews — is INNER_W wide, so their left and right edges line up
 # (#v2.4.0, item 4).
-TOOLS_W = 268
+TOOLS_W = 274
 PAD = 8
-INNER_W = TOOLS_W - 2 * PAD - 1  # minus the separator line
+SCROLLBAR_W = 14  # the tools pane scrolls (#v2.6.0); its bar is the right margin
+INNER_W = TOOLS_W - 1 - PAD - SCROLLBAR_W  # minus the separator line, the left pad, the bar
 # Eight swatches a row (#v2.5.0, was six): the symmetry block moved under
 # the colour panel and the pane has to fit an 820px-tall window.
 SWATCH_COLS = 8
@@ -75,6 +76,16 @@ LIBRARY_W = 220
 
 NEW_SIZE = 32  # new drawings: room for the trees and pets that are coming
 MAX_SIZE = 64
+
+TOOLS = ("draw", "erase", "fill", "select")
+AUTOSCROLL_MARGIN = 24  # px from the canvas edge at which a drag starts scrolling (#v2.6.0)
+
+
+def _lighten(hexcol, amount=0.25):
+    h = hexcol.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    r, g, b = (int(v + (255 - v) * amount) for v in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def base_dir():
@@ -165,7 +176,7 @@ class ArtKitApp:
         self.root = root
         self.library = library
         self.settings = settings or Settings(library.root.parent / "settings.json")
-        self.tool = self.settings.tool if self.settings.tool in ("draw", "erase", "fill") else "draw"
+        self.tool = self.settings.tool if self.settings.tool in TOOLS else "draw"
         self.ink = hex_to_rgba("D93645")  # a real colour; letters are engine-side
         self.zoom_level = DEFAULT_ZOOM
         self._histories = {}
@@ -186,8 +197,20 @@ class ArtKitApp:
         self._sym_length = int(sym.get("length", 5))
         self._placing_bar = self.symmetry_mode == symmetry.MIRROR  # a bar has to be placed first
         self._dragging_bar = None  # (dcol, drow) grab offset while the bar is being moved
+        self._resizing_bar = None  # the fixed end's axis coordinate while an end is dragged (#v2.6.0)
         self._help = None
         self._update_release = None  # the newer Release, once a check has found one
+        # #v2.6.0
+        self.show_grid = self.settings.show_grid
+        eraser = self.settings.eraser
+        self.eraser_size = (eraser["w"], eraser["h"])
+        self.selection = None      # (c0, r0, c1, r1) inclusive, normalised
+        self._selecting = None     # the anchor cell while a selection is being dragged out
+        self.clipboard = None      # (cells, w, h) from Ctrl+C / Ctrl+X
+        self.floating = None       # {"cells", "w", "h", "col", "row"}: a pasted/lifted block
+        self._dragging_float = None
+        self._label_filter = None  # None = every drawing; "" = unlabelled; else that label
+        self._hover_cell = None
 
         theme.setup(root)
         branding.apply_window_icon(root)
@@ -319,6 +342,10 @@ class ArtKitApp:
     # ---- state ---------------------------------------------------------
     def select(self, drawing):
         previous = self._selected
+        if self.floating is not None and previous is not None:
+            self.commit_floating()  # a block in the air lands before the drawing changes
+        self.selection = None
+        self._selecting = None
         self._selected = drawing
         self.history = self._histories.setdefault(id(drawing), History(drawing))
         self.root.title(f"Pixel Pomo Art Kit — {drawing.name}")
@@ -330,6 +357,8 @@ class ArtKitApp:
         self._refresh_ink_ui()
         self._refresh_size_label()
         self._redraw()
+        self._refresh_counter()
+        self._refresh_colour_strip()
         # Once the window has real dimensions, make the grid fill the middle.
         self.root.after(80, self.zoom_to_fit)
 
@@ -347,11 +376,46 @@ class ArtKitApp:
             self._draw_main()
 
     def set_tool(self, name):
-        if name not in ("draw", "erase", "fill"):
-            raise ValueError(f"tool must be 'draw', 'erase' or 'fill', got {name!r}")
+        if name not in TOOLS:
+            raise ValueError(f"tool must be one of {TOOLS}, got {name!r}")
+        if self.tool == "select" and name != "select":
+            self.commit_floating()
         self.tool = name
         self.settings.tool = name  # the last tool used is the one selected next time (item 12)
         self._refresh_tool_buttons()
+        self.canvas.delete("ghost")
+
+    def set_eraser_size(self, w, h):
+        """The eraser's footprint in cells, centred on the pointer (#v2.6.0)."""
+        w = max(1, min(MAX_SIZE, int(w)))
+        h = max(1, min(MAX_SIZE, int(h)))
+        self.eraser_size = (w, h)
+        self.settings.set_eraser(w, h)
+        self._refresh_eraser_ui()
+
+    def set_show_grid(self, on):
+        self.show_grid = bool(on)
+        self.settings.show_grid = self.show_grid
+        self._refresh_grid_ui()
+        self._draw_main()
+
+    def set_grid_colours(self, c1=None, c2=None):
+        """The two checkerboard tones behind the art (#v2.6.0, item 7)."""
+        self.settings.set_grid(c1, c2)
+        self._refresh_grid_ui()
+        self._draw_main()
+
+    def reset_grid_colours(self):
+        self.settings.reset_grid()
+        self._refresh_grid_ui()
+        self._draw_main()
+
+    def grid_colours(self):
+        g = self.settings.grid
+        return (f"#{g['c1'].lower()}", f"#{g['c2'].lower()}")
+
+    def grid_line_colour(self):
+        return _lighten(self.grid_colours()[1], 0.28)
 
     def set_ink(self, value):
         # render() silently drops anything that isn't a palette letter or an
@@ -504,6 +568,41 @@ class ArtKitApp:
         bar = self._active_bar()
         return bar is not None and (col, row) in bar.cells()
 
+    def _on_bar_end(self, col, row):
+        """Is (col, row) the first or last cell of a bar long enough to have
+        ends worth grabbing? Dragging one resizes the bar (#v2.6.0, item 9);
+        the middle cells still move it."""
+        bar = self._active_bar()
+        if bar is None or bar.length < 3:
+            return None
+        cells = bar.cells()
+        if (col, row) == cells[0]:
+            return "first"
+        if (col, row) == cells[-1]:
+            return "last"
+        return None
+
+    def resize_symmetry_bar_to(self, col, row):
+        """While an end is being dragged: the other end stays put, the length
+        follows the pointer along the bar's axis."""
+        if self._resizing_bar is None or self.symmetry_bar is None:
+            return
+        bar = self.symmetry_bar
+        fixed = self._resizing_bar
+        p = row if bar.orientation == symmetry.VERTICAL else col
+        length = max(symmetry.MIN_LENGTH, min(symmetry.MAX_LENGTH, abs(p - fixed) + 1))
+        first = min(fixed, p)
+        centre = first + (length - 1) // 2
+        if bar.orientation == symmetry.VERTICAL:
+            new = symmetry.Bar(bar.orientation, length, bar.col, centre)
+        else:
+            new = symmetry.Bar(bar.orientation, length, centre, bar.row)
+        if (new.length, new.col, new.row) != (bar.length, bar.col, bar.row):
+            self.symmetry_bar = new
+            self._sym_length = new.length
+            self._refresh_symmetry_ui()
+            self._draw_main()
+
     # ---- pointer, in GRID coordinates ----------------------------------
     def on_canvas_press(self, col, row):
         if self.history is None:
@@ -511,11 +610,32 @@ class ArtKitApp:
         if self._placing_bar:
             self.place_symmetry_bar(col, row)
             return
+        if self.floating is not None:
+            if self._in_floating(col, row):
+                self._dragging_float = (self.floating["col"] - col, self.floating["row"] - row)
+            else:
+                self.commit_floating()  # a click outside drops the block where it is
+            return
+        end = self._on_bar_end(col, row)
+        if end is not None:
+            cells = self.symmetry_bar.cells()
+            other = cells[-1] if end == "first" else cells[0]
+            self._resizing_bar = other[1] if self.symmetry_bar.orientation == symmetry.VERTICAL else other[0]
+            return
         if self._on_bar(col, row):
             # Pressing ON the bar picks it up: drag to move, release to drop.
             # This is what "the bar gets stuck" (#v2.5.0) was missing.
             bar = self.symmetry_bar
             self._dragging_bar = (bar.col - col, bar.row - row)
+            return
+        if self.tool == "select":
+            if self.selection is not None and self._in_selection(col, row):
+                self.lift_selection()
+                self._dragging_float = (self.floating["col"] - col, self.floating["row"] - row)
+                return
+            self._selecting = (col, row)
+            self.selection = self._normalised(col, row, col, row)
+            self._draw_overlays()
             return
         self.history.begin_stroke()
         self._painting = True
@@ -528,9 +648,24 @@ class ArtKitApp:
             self._paint_fast()
 
     def on_canvas_drag(self, col, row):
+        if self._dragging_float is not None:
+            dc, dr = self._dragging_float
+            self.move_floating(col + dc, row + dr)
+            return
+        if self._resizing_bar is not None:
+            self.resize_symmetry_bar_to(col, row)
+            return
         if self._dragging_bar is not None:
             dc, dr = self._dragging_bar
             self.move_symmetry_bar(col + dc, row + dr)
+            return
+        if self._selecting is not None:
+            d = self.history.current
+            col = max(0, min(d.width - 1, col))
+            row = max(0, min(d.height - 1, row))
+            self.selection = self._normalised(*self._selecting, col, row)
+            self._draw_overlays()
+            self._refresh_counter()
             return
         if not self._painting:
             return
@@ -546,9 +681,21 @@ class ArtKitApp:
             self._paint_fast()
 
     def on_canvas_release(self):
+        if self._dragging_float is not None:
+            self._dragging_float = None
+            return
+        if self._resizing_bar is not None:
+            self._resizing_bar = None
+            self.settings.set_symmetry(self._sym_orientation, self._sym_length, self.symmetry_mode)
+            self._refresh_symmetry_ui()
+            return
         if self._dragging_bar is not None:
             self._dragging_bar = None
             self._refresh_symmetry_ui()
+            return
+        if self._selecting is not None:
+            self._selecting = None
+            self._refresh_counter()
             return
         if not self._painting:
             return
@@ -556,6 +703,138 @@ class ArtKitApp:
         self._last_cell = None
         self.history.end_stroke()
         self._after_change()
+
+    # ---- selection, copy / paste (#v2.6.0, item 11) ----------------------------
+    @staticmethod
+    def _normalised(c0, r0, c1, r1):
+        return (min(c0, c1), min(r0, r1), max(c0, c1), max(r0, r1))
+
+    def _in_selection(self, col, row):
+        c0, r0, c1, r1 = self.selection
+        return c0 <= col <= c1 and r0 <= row <= r1
+
+    def _in_floating(self, col, row):
+        f = self.floating
+        return f["col"] <= col < f["col"] + f["w"] and f["row"] <= row < f["row"] + f["h"]
+
+    def select_region(self, c0, r0, c1, r1):
+        """Set the selection rectangle directly (the tool's drag does the same)."""
+        self.selection = self._normalised(c0, r0, c1, r1)
+        self._draw_overlays()
+        self._refresh_counter()
+
+    def clear_selection(self):
+        self.selection = None
+        self._draw_overlays()
+        self._refresh_counter()
+
+    def copy_selection(self):
+        """Ctrl+C: the selected cells onto the kit's clipboard. Returns True
+        if there was something to copy."""
+        if self.history is None or self.selection is None:
+            return False
+        cells, w, h = self.history.current.region(*self.selection)
+        self.clipboard = (cells, w, h)
+        self._set_status(f"copied {w}\u00d7{h}", flash=True)
+        return True
+
+    def cut_selection(self):
+        """Ctrl+X: copy, then clear the region as one undo step."""
+        if not self.copy_selection():
+            return False
+        d = self.history.current
+        self.history.begin_stroke()
+        d.clear_region(*self.selection)
+        self.history.end_stroke()
+        self._after_change()
+        self._set_status("cut", flash=True)
+        return True
+
+    def delete_selection(self):
+        """Delete / Backspace: clear the selected cells (one undo step); a
+        floating block is dropped instead."""
+        if self.floating is not None:
+            self.floating = None
+            self._draw_overlays()
+            return True
+        if self.history is None or self.selection is None:
+            return False
+        d = self.history.current
+        self.history.begin_stroke()
+        d.clear_region(*self.selection)
+        self.history.end_stroke()
+        self._after_change()
+        return True
+
+    def paste(self, col=None, row=None):
+        """Ctrl+V: the clipboard becomes a floating block — at the selection's
+        corner, or where asked, or at the top-left of what is on screen —
+        that follows the mouse until it is committed."""
+        if self.history is None or self.clipboard is None:
+            return False
+        if self.floating is not None:
+            self.commit_floating()
+        cells, w, h = self.clipboard
+        if col is None or row is None:
+            if self.selection is not None:
+                col, row = self.selection[0], self.selection[1]
+            else:
+                z = self.zoom_level
+                col = int(self.canvas.canvasx(0)) // z
+                row = int(self.canvas.canvasy(0)) // z
+        self.floating = {"cells": [list(r) for r in cells], "w": w, "h": h, "col": col, "row": row}
+        self.selection = None
+        if self.tool != "select":
+            self.set_tool("select")
+        self._draw_overlays()
+        self._refresh_counter()
+        self._set_status("drag it, Enter to place", flash=True)
+        return True
+
+    def lift_selection(self):
+        """Pick the selected cells up off the drawing (one undo step) as a
+        floating block, so they can be moved."""
+        if self.history is None or self.selection is None:
+            return False
+        d = self.history.current
+        c0, r0, c1, r1 = self.selection
+        cells, w, h = d.region(c0, r0, c1, r1)
+        self.history.begin_stroke()
+        d.clear_region(c0, r0, c1, r1)
+        self.history.end_stroke()
+        self._after_change()
+        self.floating = {"cells": cells, "w": w, "h": h, "col": c0, "row": r0}
+        self.selection = None
+        self._draw_overlays()
+        self._refresh_counter()
+        return True
+
+    def move_floating(self, col, row):
+        if self.floating is None:
+            return
+        if (col, row) != (self.floating["col"], self.floating["row"]):
+            self.floating["col"], self.floating["row"] = col, row
+            self._draw_overlays()
+
+    def nudge_floating(self, dc, dr):
+        if self.floating is not None:
+            self.move_floating(self.floating["col"] + dc, self.floating["row"] + dr)
+
+    def commit_floating(self):
+        """Enter / click outside: stamp the floating block onto the drawing as
+        one undo step; the placed area stays selected so it can be lifted
+        again."""
+        f = self.floating
+        if f is None or self.history is None:
+            return False
+        d = self.history.current
+        self.history.begin_stroke()
+        d.stamp(f["cells"], f["col"], f["row"])
+        self.history.end_stroke()
+        self.floating = None
+        self.selection = self._normalised(f["col"], f["row"], f["col"] + f["w"] - 1, f["row"] + f["h"] - 1)
+        self._after_change()
+        return True
 
     def on_canvas_pick(self, col, row):
         """Eyedropper: the cell under the cursor becomes the ink.
@@ -578,11 +857,20 @@ class ArtKitApp:
             return symmetry.expand_stick(self._sym_orientation, self._sym_length, [(col, row)])
         return symmetry.expand(self._active_bar(), [(col, row)])
 
+    def _eraser_cells(self, col, row):
+        """The eraser's footprint centred on (col, row) (#v2.6.0, item 8)."""
+        w, h = self.eraser_size
+        c0, r0 = col - w // 2, row - h // 2
+        return [(c, r) for r in range(r0, r0 + h) for c in range(c0, c0 + w)]
+
     def _apply(self, col, row):
         drawing = self.history.current
         for c, r in self._target_cells(col, row):
             if self.tool == "erase":
-                drawing.erase(c, r)
+                for ec, er in self._eraser_cells(c, r):
+                    drawing.erase(ec, er)
+                    self._stroke_cells.append((ec, er))
+                continue
             elif self.tool == "fill":
                 drawing.flood(c, r, self.ink)
             else:
@@ -600,6 +888,8 @@ class ArtKitApp:
         self._refresh_row(self._selected)
         self._refresh_size_label()
         self._redraw()
+        self._refresh_counter()
+        self._refresh_colour_strip()
 
     def _save(self, drawing, quiet=False):
         """library.save, with the failure shown instead of lost in a traceback
@@ -643,6 +933,14 @@ class ArtKitApp:
                                activebackground=theme.ACCENT, activeforeground=theme.ON_ACCENT)
         new_btn.pack(side="bottom", fill="x", padx=PAD, pady=(PAD, 4))
 
+        # The label filter, top-left (#v2.6.0, item 1): one button that
+        # names the current filter and drops a menu of every label in use.
+        filter_row = theme.frame(frame)
+        filter_row.pack(side="top", fill="x", padx=PAD, pady=(PAD, 4))
+        self._filter_button = theme.button(filter_row, "", self._post_filter_menu, anchor="w")
+        self._filter_button.pack(fill="x")
+        self._refresh_filter_button()
+
         scrollbar = theme.scrollbar(frame, "vertical")
         scrollbar.pack(side="right", fill="y")
         self._list_canvas = tk.Canvas(frame, highlightthickness=0, bg=theme.BG)
@@ -671,9 +969,97 @@ class ArtKitApp:
         step = -1 if event.delta > 0 else 1
         self._list_canvas.yview_scroll(step, "units")
 
+    # ---- labels (#v2.6.0, item 1) ---------------------------------------------
+    def set_label(self, drawing, label):
+        """Tag a drawing. Empty clears it. Saved at once."""
+        label = (label or "").strip()
+        if label == drawing.label:
+            return
+        drawing.label = label
+        self._save(drawing)
+        self._refresh_row(drawing)
+        self._refresh_filter_button()
+        self.apply_filter()
+
+    def set_label_filter(self, label):
+        """None shows everything, "" only unlabelled drawings, else that label."""
+        self._label_filter = label
+        self._refresh_filter_button()
+        self.apply_filter()
+
+    def visible_drawings(self):
+        f = self._label_filter
+        if f is None:
+            return list(self.library.drawings)
+        return [d for d in self.library.drawings if d.label == f]
+
+    def apply_filter(self):
+        """Show only the rows that match; rows are kept, just hidden."""
+        if not hasattr(self, "_rows"):
+            return
+        wanted = {id(d) for d in self.visible_drawings()}
+        for drawing in self.library.drawings:
+            widgets = self._rows.get(id(drawing))
+            if widgets is None:
+                continue
+            row = widgets["row"]
+            if id(drawing) in wanted:
+                row.pack(fill="x", pady=1, padx=(PAD, 2))
+            else:
+                row.pack_forget()
+        self._list_frame.update_idletasks()
+        self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+
+    def _refresh_filter_button(self):
+        btn = getattr(self, "_filter_button", None)
+        if btn is None:
+            return
+        f = self._label_filter
+        total = len(self.library.drawings)
+        if f is None:
+            text = f"ALL  \u00b7  {total}"
+        elif f == "":
+            text = f"NO LABEL  \u00b7  {len(self.visible_drawings())}"
+        else:
+            text = f"{f.upper()}  \u00b7  {len(self.visible_drawings())}"
+        btn.configure(text=f"\u25be  {text}")
+
+    def _post_filter_menu(self):
+        menu = tk.Menu(self.root, tearoff=False)
+        menu.add_command(label=f"All ({len(self.library.drawings)})",
+                         command=lambda: self.set_label_filter(None))
+        counts = {}
+        for d in self.library.drawings:
+            counts[d.label] = counts.get(d.label, 0) + 1
+        for label in self.library.labels():
+            menu.add_command(label=f"{label} ({counts.get(label, 0)})",
+                             command=lambda l=label: self.set_label_filter(l))
+        if counts.get("", 0):
+            menu.add_separator()
+            menu.add_command(label=f"No label ({counts['']})",
+                             command=lambda: self.set_label_filter(""))
+        btn = self._filter_button
+        menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
+
+    def _label_dialog(self, drawing):
+        LabelDialog(self.root, drawing, self.library.labels(),
+                    lambda text: self.set_label(drawing, text))
+
     def _build_canvas_pane(self, parent):
         frame = theme.frame(parent)
         frame.pack(side="left", fill="both", expand=True)
+
+        # The strip under the canvas (#v2.6.0, items 2 and 5): how many
+        # pixels, the colours in the drawing left to right, the cell and
+        # colour under the cursor.
+        bar = theme.frame(frame)
+        bar.pack(side="bottom", fill="x", padx=PAD, pady=(0, PAD))
+        self._counter_label = theme.label(bar, "", dim=True, anchor="w", font=theme.FONT_MONO)
+        self._counter_label.pack(side="left")
+        self._cursor_label = theme.label(bar, "", dim=True, anchor="e", font=theme.FONT_MONO)
+        self._cursor_label.pack(side="right")
+        self._colour_strip = ColourStrip(bar, on_pick=lambda h: self.set_ink(hex_to_rgba(h)))
+        self._colour_strip.pack(side="left", fill="x", expand=True, padx=12)
 
         # Scrollbars, because 16 cells x zoom 48 is wider than the pane — the
         # edge pixels of a sprite must stay reachable at every zoom.
@@ -697,7 +1083,7 @@ class ArtKitApp:
         self.canvas.bind("<Button-4>", lambda e: self.zoom(+1))   # X11 wheel
         self.canvas.bind("<Button-5>", lambda e: self.zoom(-1))
         self.canvas.bind("<Motion>", self._on_motion)
-        self.canvas.bind("<Leave>", lambda e: self.canvas.delete("ghost"))
+        self.canvas.bind("<Leave>", self._on_leave)
 
     def _build_tools_pane(self, parent):
         outer = theme.frame(parent, width=TOOLS_W)
@@ -706,12 +1092,25 @@ class ArtKitApp:
         # The straight line, top to bottom, that fences the tools off from
         # the drawing (item 3).
         theme.separator(outer, "vertical").pack(side="left", fill="y")
-        frame = theme.frame(outer)
-        frame.pack(side="left", fill="both", expand=True, padx=(PAD, PAD))
+        column = theme.frame(outer)
+        column.pack(side="left", fill="both", expand=True, padx=(PAD, 0))
 
         # --- bottom-right block, packed first so it owns the bottom (item 3, 13, 15)
-        bottom = theme.frame(frame)
-        bottom.pack(side="bottom", fill="x", pady=(0, PAD))
+        bottom = theme.frame(column)
+        bottom.pack(side="bottom", fill="x", pady=(0, PAD), padx=(0, PAD))
+
+        # --- everything else scrolls (#v2.6.0: the pane outgrew an 820px window)
+        scroller = tk.Canvas(column, highlightthickness=0, bg=theme.BG, width=INNER_W)
+        tbar = theme.scrollbar(column, "vertical")
+        tbar.pack(side="right", fill="y")
+        scroller.pack(side="left", fill="both", expand=True)
+        scroller.configure(yscrollcommand=tbar.set)
+        tbar.configure(command=scroller.yview)
+        frame = theme.frame(scroller)
+        window = scroller.create_window((0, 0), window=frame, anchor="nw", width=INNER_W)
+        frame.bind("<Configure>", lambda e: scroller.configure(scrollregion=scroller.bbox("all")))
+        scroller.bind("<Configure>", lambda e: scroller.itemconfigure(window, width=e.width))
+        self._tools_scroller = scroller
         foot = theme.frame(bottom)
         foot.pack(fill="x")
         self._size_label = theme.label(foot, "", fg=theme.ON_SURFACE, cursor="hand2",
@@ -752,6 +1151,7 @@ class ArtKitApp:
             "draw": theme.button(tool_row, "DRAW", lambda: self.set_tool("draw")),
             "erase": theme.button(tool_row, "ERASE", lambda: self.set_tool("erase")),
             "fill": theme.button(tool_row, "FILL", lambda: self.set_tool("fill")),
+            "select": theme.button(tool_row, "SELECT", lambda: self.set_tool("select")),
         }
         for i, btn in enumerate(self._tool_buttons.values()):
             btn.pack(side="left", expand=True, fill="x", padx=(0 if i == 0 else 2, 0))
@@ -761,11 +1161,50 @@ class ArtKitApp:
         theme.button(undo_row, "UNDO", self.undo).pack(side="left", expand=True, fill="x")
         theme.button(undo_row, "REDO", self.redo).pack(side="left", expand=True, fill="x", padx=(2, 0))
 
+        # Eraser footprint (#v2.6.0, item 8)
+        eraser_row = theme.frame(frame)
+        eraser_row.pack(fill="x", pady=2)
+        theme.label(eraser_row, "Eraser", dim=True).pack(side="left")
+        self._eraser_w = self._spinbox(eraser_row, 1, MAX_SIZE, self._on_eraser_size)
+        self._eraser_h = self._spinbox(eraser_row, 1, MAX_SIZE, self._on_eraser_size)
+        theme.label(eraser_row, "cells", dim=True).pack(side="right", padx=(4, 0))
+        self._eraser_h.pack(side="right", ipady=2)
+        theme.label(eraser_row, "\u00d7", dim=True).pack(side="right", padx=3)
+        self._eraser_w.pack(side="right", ipady=2)
+        theme.label(eraser_row, "W \u00d7 H", dim=True).pack(side="right", padx=(0, 6))
+
+        # Grid colours (#v2.6.0, item 7): the two checkerboard tones. Type a
+        # code, or click the swatch button for the system colour picker.
+        theme.label(frame, "Grid", dim=True).pack(pady=(PAD, 0), anchor="w")
+        grid_row = theme.frame(frame)
+        grid_row.pack(fill="x")
+        self._grid_entries = {}
+        for key, caption in (("c1", "colour 1"), ("c2", "colour 2")):
+            cell = theme.frame(grid_row)
+            cell.pack(side="left", expand=True, fill="x", padx=(0, 4))
+            theme.label(cell, caption, dim=True).pack(anchor="w")
+            row = theme.frame(cell)
+            row.pack(fill="x")
+            entry = theme.entry(row, justify="center", width=8)
+            entry.pack(side="left", fill="x", expand=True, ipady=2)
+            entry.bind("<Return>", lambda e, k=key: self._on_grid_entry(k))
+            entry.bind("<KP_Enter>", lambda e, k=key: self._on_grid_entry(k))
+            entry.bind("<FocusOut>", lambda e, k=key: self._on_grid_entry(k))
+            entry.bind("<Double-Button-1>", self._select_all_in_entry)
+            theme.button(row, "\u2026", lambda k=key: self._pick_grid_colour(k), padx=6,
+                         pady=2).pack(side="left", padx=(2, 0))
+            self._grid_entries[key] = entry
+        default_cell = theme.frame(grid_row)
+        default_cell.pack(side="left", anchor="s")
+        theme.label(default_cell, " ", dim=True).pack(anchor="w")
+        theme.button(default_cell, "DEFAULT", self.reset_grid_colours, padx=5, pady=2).pack()
+
         # What the next click will paint — the one piece of state the artist
         # otherwise has to keep in their head. An Entry, so the code can be
         # copied (double-click selects it all) or typed over (item 5).
+        theme.label(frame, "Ink", dim=True).pack(pady=(PAD, 0), anchor="w")
         ink_row = theme.frame(frame)
-        ink_row.pack(fill="x", pady=(PAD, 0))
+        ink_row.pack(fill="x")
         self._ink_entry = theme.entry(ink_row, justify="center")
         self._ink_entry.pack(side="left", fill="x", expand=True, ipady=3)
         self._ink_entry.bind("<Return>", self._on_ink_entry_commit)
@@ -793,9 +1232,98 @@ class ArtKitApp:
         self._build_picker(frame)
         self._build_symmetry_block(frame)
 
+        # Show the cell lines or not (#v2.6.0, item 2), under Symmetry as asked.
+        theme.label(frame, "Grid lines", dim=True).pack(pady=(PAD, 0), anchor="w")
+        lines_row = theme.frame(frame)
+        lines_row.pack(fill="x", pady=(2, PAD))
+        self._grid_buttons = {
+            True: theme.button(lines_row, "WITH GRID", lambda: self.set_show_grid(True), padx=4),
+            False: theme.button(lines_row, "WITHOUT GRID", lambda: self.set_show_grid(False), padx=4),
+        }
+        self._grid_buttons[True].pack(side="left", expand=True, fill="x")
+        self._grid_buttons[False].pack(side="left", expand=True, fill="x", padx=(2, 0))
+
+        self._bind_tools_wheel(frame)
         self._refresh_tool_buttons()
         self._refresh_symmetry_ui()
+        self._refresh_eraser_ui()
+        self._refresh_grid_ui()
         self._refresh_ink_ui()
+
+    def _spinbox(self, parent, lo, hi, command, width=3):
+        var = tk.StringVar()
+        spin = tk.Spinbox(parent, from_=lo, to=hi, width=width, textvariable=var, command=command,
+                          bg=theme.PANEL, fg=theme.ON_SURFACE, buttonbackground=theme.PANEL_HI,
+                          relief="flat", bd=0, highlightthickness=1, highlightbackground=theme.SHADOW,
+                          insertbackground=theme.ON_SURFACE, font=theme.FONT_MONO, justify="center")
+        spin.var = var
+        spin.bind("<Return>", lambda e: command())
+        spin.bind("<FocusOut>", lambda e: command())
+        return spin
+
+    def _bind_tools_wheel(self, widget):
+        """The wheel scrolls the tools pane wherever the pointer is over it
+        (the spinboxes keep the wheel for their own value)."""
+        if isinstance(widget, tk.Spinbox):
+            return
+        widget.bind("<MouseWheel>", self._on_tools_wheel)
+        widget.bind("<Button-4>", lambda e: self._tools_scroller.yview_scroll(-1, "units"))
+        widget.bind("<Button-5>", lambda e: self._tools_scroller.yview_scroll(1, "units"))
+        for child in widget.winfo_children():
+            self._bind_tools_wheel(child)
+
+    def _on_tools_wheel(self, event):
+        self._tools_scroller.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+    def _on_eraser_size(self):
+        try:
+            self.set_eraser_size(int(self._eraser_w.var.get()), int(self._eraser_h.var.get()))
+        except ValueError:
+            self._refresh_eraser_ui()
+
+    def _refresh_eraser_ui(self):
+        if not hasattr(self, "_eraser_w"):
+            return
+        w, h = self.eraser_size
+        if self._eraser_w.var.get() != str(w):
+            self._eraser_w.var.set(str(w))
+        if self._eraser_h.var.get() != str(h):
+            self._eraser_h.var.set(str(h))
+
+    def _on_grid_entry(self, key):
+        text = self._grid_entries[key].get().strip().lstrip("#")
+        if re.fullmatch(r"[0-9a-fA-F]{6}", text):
+            self.set_grid_colours(**{key: text})
+        else:
+            self._refresh_grid_ui()
+
+    def _pick_grid_colour(self, key):
+        from tkinter import colorchooser
+        current = self.grid_colours()[0 if key == "c1" else 1]
+        _rgb, hexcol = colorchooser.askcolor(color=current, parent=self.root,
+                                             title=f"Grid {key[-1]}")
+        if hexcol:
+            self.set_grid_colours(**{key: hexcol})
+        self.canvas.focus_set()
+
+    def _refresh_grid_ui(self):
+        if not hasattr(self, "_grid_entries"):
+            return
+        for key, hexcol in zip(("c1", "c2"), self.grid_colours()):
+            entry = self._grid_entries[key]
+            entry.delete(0, "end")
+            entry.insert(0, hexcol)
+            entry.configure(bg=hexcol, fg=theme.readable_on(hexcol),
+                            insertbackground=theme.readable_on(hexcol))
+        if hasattr(self, "_grid_buttons"):
+            for on, btn in self._grid_buttons.items():
+                theme.set_pressed(btn, on == self.show_grid)
+
+    def _select_all_in_entry(self, event):
+        event.widget.focus_set()
+        event.widget.select_range(0, "end")
+        event.widget.icursor("end")
+        return "break"
 
     def _build_symmetry_block(self, frame):
         """Under the colour panel (#v2.5.0): a mode row, a shape row, a hint.
@@ -860,11 +1388,7 @@ class ArtKitApp:
         for mode, btn in self._sym_mode_buttons.items():
             theme.set_pressed(btn, mode == self.symmetry_mode)
         vertical = self._sym_orientation == symmetry.VERTICAL
-        if self.symmetry_mode == symmetry.STICK:
-            glyph = "\u2502 90\u00b0  down" if vertical else "\u2500 180\u00b0  right"
-        else:
-            glyph = "\u2502 90\u00b0  standing" if vertical else "\u2500 180\u00b0  lying"
-        self._sym_orient_button.configure(text=glyph)
+        self._sym_orient_button.configure(text="\u2502 90\u00b0" if vertical else "\u2500 180\u00b0")
         if self._sym_length_var.get() != str(self._sym_length):
             self._sym_length_var.set(str(self._sym_length))
         mirror = self.symmetry_mode == symmetry.MIRROR
@@ -882,7 +1406,8 @@ class ArtKitApp:
                                      fg=theme.ACCENT)
         else:
             self._sym_hint.configure(
-                text="painting along the bar is mirrored \u00b7 drag the bar to move it",
+                text=f"{'standing' if vertical else 'lying'} bar: painting along it is mirrored "
+                     f"\u00b7 drag it to move, drag an end to resize",
                 fg=theme.ON_DIM)
 
     def _build_picker(self, frame):
@@ -943,11 +1468,24 @@ class ArtKitApp:
             self.root.bind(f"<{mod}-Shift-z>", lambda e: self.redo())
             self.root.bind(f"<{mod}-s>", lambda e: self.save())
             self.root.bind(f"<{mod}-n>", lambda e: self._new_drawing_dialog())
+            # copy / cut / paste (#v2.6.0) — not while typing in an entry
+            self.root.bind(f"<{mod}-c>", self._typing_guard(self.copy_selection))
+            self.root.bind(f"<{mod}-x>", self._typing_guard(self.cut_selection))
+            self.root.bind(f"<{mod}-v>", self._typing_guard(self.paste))
         # Single letters must not fire while the artist is typing a hex code.
         self.root.bind("<Key-e>", self._typing_guard(lambda: self.set_tool("erase")))
         self.root.bind("<Key-b>", self._typing_guard(lambda: self.set_tool("draw")))
         self.root.bind("<Key-f>", self._typing_guard(lambda: self.set_tool("fill")))
+        self.root.bind("<Key-s>", self._typing_guard(lambda: self.set_tool("select")))
         self.root.bind("<Key-m>", self._typing_guard(self.cycle_symmetry_mode))
+        self.root.bind("<Return>", self._typing_guard(self.commit_floating))
+        self.root.bind("<KP_Enter>", self._typing_guard(self.commit_floating))
+        self.root.bind("<Delete>", self._typing_guard(self.delete_selection))
+        self.root.bind("<BackSpace>", self._typing_guard(self.delete_selection))
+        self.root.bind("<Left>", self._typing_guard(lambda: self.nudge_floating(-1, 0)))
+        self.root.bind("<Right>", self._typing_guard(lambda: self.nudge_floating(1, 0)))
+        self.root.bind("<Up>", self._typing_guard(lambda: self.nudge_floating(0, -1)))
+        self.root.bind("<Down>", self._typing_guard(lambda: self.nudge_floating(0, 1)))
         self.root.bind("<plus>", self._typing_guard(lambda: self.zoom(+1)))
         self.root.bind("<KP_Add>", self._typing_guard(lambda: self.zoom(+1)))
         self.root.bind("<minus>", self._typing_guard(lambda: self.zoom(-1)))
@@ -969,6 +1507,10 @@ class ArtKitApp:
             self.toggle_help()
         elif isinstance(self.root.focus_get(), (tk.Entry, tk.Spinbox)):
             self.canvas.focus_set()
+        elif self.floating is not None:
+            self.commit_floating()  # never destructive: Esc drops it where it is
+        elif self.selection is not None:
+            self.clear_selection()
 
     # ---- canvas <-> grid glue -------------------------------------------
     def _grid_at(self, event):
@@ -982,7 +1524,24 @@ class ArtKitApp:
         self.on_canvas_press(*self._grid_at(event))
 
     def _on_drag(self, event):
+        self._autoscroll(event)
         self.on_canvas_drag(*self._grid_at(event))
+
+    def _autoscroll(self, event):
+        """Dragging against the edge of the visible area scrolls the canvas
+        that way, one cell at a time (#v2.6.0, item 6) — so a line can be
+        continued past the edge while zoomed in, without letting go."""
+        w, h = self.canvas.winfo_width(), self.canvas.winfo_height()
+        if w < 40 or h < 40:
+            return
+        if event.x < AUTOSCROLL_MARGIN:
+            self.canvas.xview_scroll(-1, "units")
+        elif event.x > w - AUTOSCROLL_MARGIN:
+            self.canvas.xview_scroll(1, "units")
+        if event.y < AUTOSCROLL_MARGIN:
+            self.canvas.yview_scroll(-1, "units")
+        elif event.y > h - AUTOSCROLL_MARGIN:
+            self.canvas.yview_scroll(1, "units")
 
     def _on_release(self, _event):
         self.on_canvas_release()
@@ -990,27 +1549,115 @@ class ArtKitApp:
     def _on_pick(self, event):
         self.on_canvas_pick(*self._grid_at(event))
 
+    def _on_leave(self, _event=None):
+        self.canvas.delete("ghost")
+        self._hover_cell = None
+        self._refresh_cursor_label()
+        self._refresh_counter()
+
     def _on_motion(self, event):
-        """While placing the symmetry bar, a ghost of it follows the cursor."""
+        """Ghosts under the cursor (the bar being placed, the stick, the
+        eraser's footprint), the move cursor over the bar, and the cell /
+        colour readout in the strip below."""
         self.canvas.delete("ghost")
         if self.history is None:
             return
         col, row = self._grid_at(event)
+        self._hover_cell = (col, row)
+        self._refresh_cursor_label()
+        self._refresh_counter()
+        z = self.zoom_level
         if self._placing_bar:
             ghost = symmetry.Bar(self._sym_orientation, self._sym_length, col, row)
             self._draw_bar(ghost, tag="ghost", colour=theme.ON_DIM)
-        elif self.symmetry_mode == symmetry.STICK and not self._painting:
+        elif self.symmetry_mode == symmetry.STICK and not self._painting and self.tool != "select":
             # the run this click would paint, so the artist can line it up
-            z = self.zoom_level
-            cells = symmetry.stick(self._sym_orientation, self._sym_length, col, row)
-            x0, y0 = min(c for c, _ in cells) * z, min(r for _, r in cells) * z
-            x1, y1 = (max(c for c, _ in cells) + 1) * z, (max(r for _, r in cells) + 1) * z
-            self.canvas.create_rectangle(x0 + 1, y0 + 1, x1 - 1, y1 - 1, outline=theme.ON_DIM,
-                                         width=1, tags="ghost")
-        elif self._on_bar(col, row):
+            self._ghost_cells(symmetry.stick(self._sym_orientation, self._sym_length, col, row), z)
+        elif self.tool == "erase" and self.eraser_size != (1, 1) and not self._painting:
+            self._ghost_cells(self._eraser_cells(col, row), z)
+        if self.floating is not None and self._in_floating(col, row):
+            self.canvas.configure(cursor="fleur")
+            return
+        if self._on_bar_end(col, row) is not None:
+            vertical = self.symmetry_bar.orientation == symmetry.VERTICAL
+            self.canvas.configure(cursor="sb_v_double_arrow" if vertical else "sb_h_double_arrow")
+            return
+        if self._on_bar(col, row):
+            self.canvas.configure(cursor="fleur")
+            return
+        if self.tool == "select" and self.selection is not None and self._in_selection(col, row):
             self.canvas.configure(cursor="fleur")
             return
         self.canvas.configure(cursor="")
+
+    def _ghost_cells(self, cells, z):
+        x0, y0 = min(c for c, _ in cells) * z, min(r for _, r in cells) * z
+        x1, y1 = (max(c for c, _ in cells) + 1) * z, (max(r for _, r in cells) + 1) * z
+        self.canvas.create_rectangle(x0 + 1, y0 + 1, x1 - 1, y1 - 1, outline=theme.ON_DIM,
+                                     width=1, tags="ghost")
+
+    # ---- the strip under the canvas (#v2.6.0, items 2 and 5) --------------------
+    def _refresh_counter(self):
+        label = getattr(self, "_counter_label", None)
+        if label is None:
+            return
+        if self.history is None:
+            label.configure(text="")
+            return
+        d = self.history.current
+        parts = [f"pixels {d.count()}"]
+        if self.selection is not None:
+            c0, r0, c1, r1 = self.selection
+            cells, w, h = d.region(c0, r0, c1, r1)
+            n = sum(1 for line in cells for c in line if c is not None)
+            parts.append(f"selection {w}\u00d7{h}: {n}")
+        elif self._hover_cell is not None:
+            col, row = self._hover_cell
+            if d._inside(col, row):
+                parts.append(f"row {row}: {d.row_count(row)}")
+                parts.append(f"col {col}: {d.col_count(col)}")
+        label.configure(text=" \u00b7 ".join(parts))
+
+    def _refresh_cursor_label(self):
+        label = getattr(self, "_cursor_label", None)
+        if label is None:
+            return
+        if self.history is None or self._hover_cell is None:
+            label.configure(text="")
+            return
+        col, row = self._hover_cell
+        d = self.history.current
+        if not d._inside(col, row):
+            label.configure(text="")
+            return
+        cell = d.get(col, row)
+        if cell is None:
+            colour = "empty"
+        elif isinstance(cell, str):
+            colour = _hex(d.palette.colors()[cell])
+        else:
+            colour = _hex(cell)
+        label.configure(text=f"x {col}  y {row}   {colour}")
+
+    def _refresh_colour_strip(self):
+        strip = getattr(self, "_colour_strip", None)
+        if strip is None:
+            return
+        if self.history is None:
+            strip.set_colours([])
+            return
+        d = self.history.current
+        counts = {}
+        palette = d.palette.colors()
+        for line in d.cells:
+            for cell in line:
+                if cell is None:
+                    continue
+                rgba = palette[cell] if isinstance(cell, str) else cell
+                key = _hex(rgba)[1:].upper()
+                counts[key] = counts.get(key, 0) + 1
+        # left to right by how much of the drawing each colour covers
+        strip.set_colours(sorted(counts.items(), key=lambda kv: -kv[1]))
 
     # ---- the ink entry (item 5) -----------------------------------------------
     def _on_ink_entry_commit(self, _event=None):
@@ -1058,8 +1705,8 @@ class ArtKitApp:
         self._rows = {}
         for drawing in self.library.drawings:
             self._build_row(drawing)
-        self._list_frame.update_idletasks()
-        self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+        self.apply_filter()
+        self._refresh_filter_button()
         self._list_canvas.yview_moveto(offset)
 
     def _refresh_list(self):
@@ -1075,30 +1722,42 @@ class ArtKitApp:
         thumb = tk.Label(row, bg=bg, bd=0)
         thumb.pack(side="left", padx=4, pady=3)
 
+        # The name is packed LAST (below), so the ⋮ and the label chip keep
+        # their width and a long name is what gets clipped.
         label = tk.Label(row, text=drawing.name, anchor="w", bg=bg, fg=theme.ON_SURFACE,
                          font=theme.FONT)
-        label.pack(side="left", fill="x", expand=True)
 
         menu = tk.Menu(row, tearoff=False)
         menu.add_command(label="Duplicate", command=lambda: self._duplicate(drawing))
         menu.add_command(label="Export PNG\u2026", command=lambda: self._export_png(drawing))
+        menu.add_command(label="Export PNG with grid\u2026",
+                         command=lambda: self._export_png(drawing, grid=True))
         menu.add_command(label="Export JPG\u2026", command=lambda: self._export_jpg(drawing))
         menu.add_command(label="Export engine sprite\u2026",
                          command=lambda: self._export_engine_sprite(drawing))
+        menu.add_separator()
         menu.add_command(label="Rename\u2026", command=lambda: self._rename(drawing))
-        menu.add_command(label="Species\u2026", command=lambda: self._set_species(drawing))
+        menu.add_command(label="Label\u2026", command=lambda: self._label_dialog(drawing))
         menu.add_command(label="Size\u2026", command=lambda: self._set_size(drawing))
+        menu.add_separator()
         menu.add_command(label="Delete", command=lambda: self._delete(drawing))
         menu_btn = theme.button(row, "\u22ee", None, bg=bg, activebackground=theme.PANEL_HI,
                                 padx=6, pady=2)
         menu_btn.configure(command=lambda: menu.tk_popup(
             menu_btn.winfo_rootx(), menu_btn.winfo_rooty() + menu_btn.winfo_height()))
-        menu_btn.pack(side="right", padx=4)
+        menu_btn.pack(side="right", padx=(0, 4))
+        # The label chip, left of ⋮ (#v2.6.0): click it to change the label.
+        chip = theme.button(row, "", lambda: self._label_dialog(drawing), bg=bg,
+                            fg=theme.ON_DIM, activebackground=theme.PANEL_HI, font=theme.FONT_SMALL,
+                            padx=4, pady=2)
+        chip.pack(side="right")
+        label.pack(side="left", fill="x", expand=True)
 
         for widget in (row, label, thumb):
             widget.bind("<Button-1>", lambda e: self.select(drawing))
             widget.bind("<MouseWheel>", self._on_list_wheel)
-        self._rows[id(drawing)] = {"row": row, "thumb": thumb, "label": label, "menu": menu_btn}
+        self._rows[id(drawing)] = {"row": row, "thumb": thumb, "label": label, "menu": menu_btn,
+                                   "chip": chip}
         self._refresh_row(drawing)
 
     def _refresh_row(self, drawing):
@@ -1113,15 +1772,18 @@ class ArtKitApp:
         self._images[("thumb", id(drawing))] = img
         widgets["thumb"].configure(image=img)
         widgets["label"].configure(text=drawing.name)
+        widgets["chip"].configure(text=drawing.label or "\u2013",
+                                  fg=theme.WORK if drawing.label else theme.ON_DIM)
 
     def _highlight_row(self, drawing, selected):
         widgets = self._rows.get(id(drawing))
         if widgets is None:
             return
         bg = ROW_BG_SELECTED if selected else ROW_BG
-        for key in ("row", "thumb", "label", "menu"):
+        for key in ("row", "thumb", "label", "menu", "chip"):
             widgets[key].configure(bg=bg)
         widgets["menu"].configure(highlightbackground=bg)
+        widgets["chip"].configure(highlightbackground=bg)
         if selected:
             self._scroll_row_into_view(widgets["row"])
 
@@ -1149,13 +1811,24 @@ class ArtKitApp:
         else:
             palette = Palette(d="2E2E2E", m="6E6E6E", l="B0B0B0", centre="F2C94C", rim="1A1A1A")
             species, model = "", 0
-        drawing = Drawing.blank(cols, rows, palette, species=species, model=model)
+        # A new drawing takes the label being filtered on, or the open one's.
+        label = self._label_filter if self._label_filter else (base.label if base else "")
+        drawing = Drawing.blank(cols, rows, palette, species=species, model=model, label=label)
         self.library.add(drawing)
-        self._build_row(drawing)
-        self._list_frame.update_idletasks()
-        self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+        self._add_row(drawing)
         self.select(drawing)
         return drawing
+
+    def _add_row(self, drawing):
+        """A row for a drawing that just joined the library; if the current
+        filter would hide it, the filter is dropped — a drawing the artist
+        just made must not vanish."""
+        self._build_row(drawing)
+        if self._label_filter is not None and drawing.label != self._label_filter:
+            self.set_label_filter(None)
+        else:
+            self.apply_filter()
+            self._refresh_filter_button()
 
     def _new_drawing(self):
         """Older name, kept: a default-size blank drawing, no dialog."""
@@ -1172,9 +1845,7 @@ class ArtKitApp:
         drawing, notes = engine_io.import_png(path)
         drawing.species = drawing.species or ""
         self.library.add(drawing)
-        self._build_row(drawing)
-        self._list_frame.update_idletasks()
-        self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+        self._add_row(drawing)
         return drawing, notes
 
     def _import_dialog(self):
@@ -1202,9 +1873,7 @@ class ArtKitApp:
 
     def _duplicate(self, drawing):
         clone = self.library.duplicate(drawing)
-        self._build_row(clone)
-        self._list_frame.update_idletasks()
-        self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all"))
+        self._add_row(clone)
         self.select(clone)
 
     def _rename(self, drawing):
@@ -1219,25 +1888,6 @@ class ArtKitApp:
             if drawing is self._selected:
                 self.root.title(f"Pixel Pomo Art Kit — {name}")
             self._refresh_row(drawing)
-
-    def _set_species(self, drawing):
-        """Name the species — what unlocks engine export for a new flower."""
-        value = simpledialog.askstring(
-            "Pixel Pomo Art Kit",
-            "Species id (lowercase, as the engine names it, e.g. 'gonca'):",
-            initialvalue=drawing.species, parent=self.root)
-        if value is None:
-            return
-        value = value.strip()
-        if not re.fullmatch(r"[a-z][a-z0-9_]*", value):
-            messagebox.showerror(
-                "Pixel Pomo Art Kit",
-                "A species id is lowercase letters/digits/underscores and "
-                "starts with a letter — it becomes the sprite's filename.")
-            return
-        drawing.species = value
-        self._save(drawing)
-        self._refresh_row(drawing)
 
     def _set_size(self, drawing):
         if drawing is None:
@@ -1288,14 +1938,16 @@ class ArtKitApp:
         self._redraw()
 
     # ---- export ------------------------------------------------------
-    def _export_png(self, drawing):
+    def _export_png(self, drawing, grid=False):
+        suffix = " (grid)" if grid else ""
         path = filedialog.asksaveasfilename(
-            parent=self.root, title="Export PNG", defaultextension=".png",
-            initialfile=f"{drawing.name}.png", filetypes=[("PNG image", "*.png")])
+            parent=self.root, title="Export PNG with grid" if grid else "Export PNG",
+            defaultextension=".png", initialfile=f"{drawing.name}{suffix}.png",
+            filetypes=[("PNG image", "*.png")])
         if not path:
             return
         try:
-            engine_io.export_png(drawing, path)
+            engine_io.export_png(drawing, path, grid=self.grid_line_colour() if grid else None)
         except engine_io.ExportRefused as exc:
             messagebox.showerror("Pixel Pomo Art Kit", str(exc))
 
@@ -1311,26 +1963,25 @@ class ArtKitApp:
             messagebox.showerror("Pixel Pomo Art Kit", str(exc))
 
     def _export_engine_sprite(self, drawing):
+        """The x16 engine-scale sprite, any size, to a file the artist names
+        (#v2.6.0, items 4 and 10). One ordinary save dialog: the name is
+        editable there, and "replace?" is the system's own question — no
+        second confirmation, no 16-wide refusal. Sizing and naming a sprite
+        for the garden is the developer's job afterwards, as with palettes."""
         folder = engine_sprite_dir()
         folder.mkdir(parents=True, exist_ok=True)  # so the picker opens somewhere real
-        out_dir = filedialog.askdirectory(
-            parent=self.root, title="Export engine sprite", initialdir=str(folder))
-        if not out_dir:
-            return
-        names = ", ".join(engine_io.engine_sprite_names(drawing))
-        if not messagebox.askyesno(
-                "Pixel Pomo Art Kit",
-                f"This will overwrite:\n{names}\nin {out_dir}\n\nContinue?"):
+        path = filedialog.asksaveasfilename(
+            parent=self.root, title="Export engine sprite (x16)", defaultextension=".png",
+            initialdir=str(folder), initialfile=engine_io.suggested_sprite_name(drawing),
+            filetypes=[("PNG sprite", "*.png")])
+        if not path:
             return
         try:
-            written = engine_io.export_engine_sprite(drawing, out_dir)
-        except engine_io.ExportRefused as exc:
+            written = engine_io.export_sprite(drawing, path)
+        except (engine_io.ExportRefused, OSError) as exc:
             messagebox.showerror("Pixel Pomo Art Kit", str(exc))
             return
-        # Multi-file write into a browsed-to folder: say what landed where,
-        # or a successful export is indistinguishable from a silent failure.
-        messagebox.showinfo("Pixel Pomo Art Kit",
-                            "Exported:\n" + "\n".join(str(p) for p in written))
+        self._set_status(f"exported {Path(written).name}", flash=True)
 
     # ---- drawing --------------------------------------------------------
     def _redraw(self):
@@ -1349,12 +2000,46 @@ class ArtKitApp:
         img = raster.photo(grid, z, master=self.root)
         self._images["main"] = img
         self.canvas.create_image(0, 0, image=img, anchor="nw", tags="art")
-        if z >= 8:
+        if z >= 8 and self.show_grid:
             self._draw_grid_lines(w, h, z)
         bar = self._active_bar()
         if bar is not None:
             self._draw_bar(bar, tag="symmetry", colour=theme.ACCENT)
-        self.canvas.configure(scrollregion=(0, 0, w * z, h * z))
+        self._draw_overlays()
+        # one scroll "unit" is one cell, for the edge auto-scroll while dragging
+        self.canvas.configure(scrollregion=(0, 0, w * z, h * z),
+                              xscrollincrement=z, yscrollincrement=z)
+
+    def _draw_overlays(self):
+        """The selection rectangle and the floating block (#v2.6.0) — redrawn
+        on their own while they move, so the drawing underneath is not
+        re-rendered for every pixel of a drag."""
+        self.canvas.delete("selection")
+        self.canvas.delete("floating")
+        if self.history is None:
+            return
+        z = self.zoom_level
+        if self.floating is not None:
+            f = self.floating
+            palette = self.history.current.palette.colors()
+            grid = [[(palette[c] if isinstance(c, str) else c) if c is not None else None
+                     for c in line] for line in f["cells"]]
+            img = raster.photo(grid, z, master=self.root)
+            self._images["floating"] = img
+            x0, y0 = f["col"] * z, f["row"] * z
+            self.canvas.create_image(x0, y0, image=img, anchor="nw", tags="floating")
+            self.canvas.create_rectangle(x0, y0, x0 + f["w"] * z, y0 + f["h"] * z,
+                                         outline=theme.ACCENT, width=2, dash=(6, 3), tags="floating")
+        if self.selection is not None:
+            c0, r0, c1, r1 = self.selection
+            self.canvas.create_rectangle(c0 * z + 1, r0 * z + 1, (c1 + 1) * z - 1, (r1 + 1) * z - 1,
+                                         outline=theme.WORK, width=2, dash=(6, 3), tags="selection")
+
+    def _checker_at(self, x0, y0, wpx, hpx):
+        """Which of the two checker tones sits under pixel (x0, y0)."""
+        cols = rows = 10
+        rx, ry = x0 * cols // max(1, wpx), y0 * rows // max(1, hpx)
+        return self.grid_colours()[(rx + ry) % 2]
 
     def _paint_fast(self):
         """Mid-stroke: paint only the cells this event touched, as rectangles
@@ -1366,7 +2051,6 @@ class ArtKitApp:
         z = self.zoom_level
         d = self.history.current
         wpx, hpx = d.width * z, d.height * z
-        cw, ch = max(1, wpx // 10), max(1, hpx // 10)
         if self.tool == "erase":
             fill = None
         else:
@@ -1375,7 +2059,7 @@ class ArtKitApp:
             if not d._inside(c, r):
                 continue
             x0, y0 = c * z, r * z
-            colour = fill or CHECKER[((x0 // cw) + (y0 // ch)) % 2]
+            colour = fill or self._checker_at(x0, y0, wpx, hpx)
             self.canvas.create_rectangle(x0, y0, x0 + z, y0 + z, fill=colour,
                                          outline="", tags="stroke")
         # keep grid lines and the bar above the fresh cells
@@ -1405,22 +2089,31 @@ class ArtKitApp:
         # A fixed 10x10 grid of squares, however big the canvas is - a bounded
         # number of items so redrawing on every zoom tick stays cheap, rather
         # than a fixed square SIZE whose item count grows with zoom^2.
+        #
+        # Edges are integer partitions of the full width/height (#v2.6.0):
+        # the old `width // cols` block size left an unpainted strip along the
+        # right and bottom whenever the size was not a multiple of ten — the
+        # "grid does not cover the corners" the artists saw.
         cols = rows = 10
-        cw, ch = max(1, width // cols), max(1, height // rows)
+        tones = self.grid_colours()
         for ry in range(rows):
+            y0, y1 = ry * height // rows, (ry + 1) * height // rows
             for rx in range(cols):
-                x0, y0 = rx * cw, ry * ch
-                canvas.create_rectangle(
-                    x0, y0, x0 + cw, y0 + ch, fill=CHECKER[(rx + ry) % 2], outline="",
-                    tags="checker")
+                x0, x1 = rx * width // cols, (rx + 1) * width // cols
+                canvas.create_rectangle(x0, y0, x1, y1, fill=tones[(rx + ry) % 2], outline="",
+                                        tags="checker")
 
     def _draw_grid_lines(self, width, height, z):
+        # The last line is pulled one pixel in, or it falls on the far side
+        # of the scroll region and is never seen (#v2.6.0).
+        colour = self.grid_line_colour()
+        wpx, hpx = width * z, height * z
         for c in range(width + 1):
-            x = c * z
-            self.canvas.create_line(x, 0, x, height * z, fill=theme.PANEL_HI, tags="grid")
+            x = min(c * z, wpx - 1)
+            self.canvas.create_line(x, 0, x, hpx, fill=colour, tags="grid")
         for r in range(height + 1):
-            y = r * z
-            self.canvas.create_line(0, y, width * z, y, fill=theme.PANEL_HI, tags="grid")
+            y = min(r * z, hpx - 1)
+            self.canvas.create_line(0, y, wpx, y, fill=colour, tags="grid")
 
     def _draw_bar(self, bar, tag, colour):
         """The symmetry bar over the grid: a bright outline around the cells
@@ -1530,6 +2223,107 @@ class SwatchGrid(tk.Canvas):
             self._on_context(h, event)
 
 
+class ColourStrip(tk.Canvas):
+    """The colours in the open drawing, left to right, most-used first, each
+    with its code and cell count; click one to make it the ink (#v2.6.0,
+    item 2). Sits under the canvas."""
+
+    SWATCH, GAP, H = 16, 6, 30
+
+    def __init__(self, parent, on_pick):
+        super().__init__(parent, height=self.H, highlightthickness=0, bg=theme.BG, cursor="hand2")
+        self._on_pick = on_pick
+        self._hits = []  # (x0, x1, hexcode)
+        self.bind("<Button-1>", self._click)
+        self.bind("<Configure>", lambda e: self._paint())
+        self._items = []
+
+    def set_colours(self, items):
+        """`items`: [(hexcode, count), ...] in display order."""
+        self._items = list(items)
+        self._paint()
+
+    def _paint(self):
+        self.delete("all")
+        self._hits = []
+        width = max(1, self.winfo_width())
+        x = 0
+        for hexcode, count in self._items:
+            text = f"#{hexcode.lower()} \u00b7 {count}"
+            approx = self.SWATCH + 4 + 7 * len(text) + self.GAP
+            if x + approx > width:
+                self.create_text(x, self.H // 2, text="\u2026", fill=theme.ON_DIM, anchor="w",
+                                 font=theme.FONT_SMALL)
+                break
+            self.create_rectangle(x, (self.H - self.SWATCH) // 2, x + self.SWATCH,
+                                  (self.H + self.SWATCH) // 2, fill=f"#{hexcode.lower()}",
+                                  outline=theme.SHADOW)
+            item = self.create_text(x + self.SWATCH + 4, self.H // 2, text=text, fill=theme.ON_DIM,
+                                    anchor="w", font=theme.FONT_SMALL)
+            x1 = self.bbox(item)[2]
+            self._hits.append((x, x1, hexcode))
+            x = x1 + self.GAP
+
+    def _click(self, event):
+        for x0, x1, hexcode in self._hits:
+            if x0 <= event.x <= x1:
+                self._on_pick(hexcode)
+                return
+
+
+class LabelDialog(tk.Toplevel):
+    """Pick or type a label for one drawing (#v2.6.0, item 1)."""
+
+    def __init__(self, parent, drawing, existing, on_ok):
+        super().__init__(parent, bg=theme.BG)
+        self.title(f"Label \u2014 {drawing.name}")
+        self.transient(parent)
+        self.resizable(False, False)
+        theme.dark_title_bar(self)
+        self._on_ok = on_ok
+        body = theme.frame(self)
+        body.pack(padx=16, pady=12)
+        theme.label(body, f"Label for {drawing.name}", font=theme.FONT_BOLD).pack(anchor="w")
+        theme.label(body, "Pick one in use, or type a new one. Labels filter the library.",
+                    dim=True).pack(anchor="w", pady=(0, 8))
+        if existing:
+            grid = theme.frame(body)
+            grid.pack(fill="x")
+            for i, label in enumerate(existing):
+                btn = theme.button(grid, label, lambda l=label: self._finish(l), pady=4)
+                btn.grid(row=i // 3, column=i % 3, sticky="ew", padx=2, pady=2)
+                if label == drawing.label:
+                    theme.set_pressed(btn, True)
+            for c in range(3):
+                grid.grid_columnconfigure(c, weight=1)
+        row = theme.frame(body)
+        row.pack(fill="x", pady=(10, 0))
+        theme.label(row, "New", dim=True).pack(side="left")
+        self._entry = theme.entry(row, width=18)
+        self._entry.insert(0, drawing.label)
+        self._entry.pack(side="left", padx=(8, 0), ipady=2, fill="x", expand=True)
+        buttons = theme.frame(body)
+        buttons.pack(fill="x", pady=(12, 0))
+        theme.button(buttons, "CANCEL", self.destroy).pack(side="right")
+        theme.button(buttons, "NO LABEL", lambda: self._finish("")).pack(side="right", padx=(0, 6))
+        theme.button(buttons, "APPLY", lambda: self._finish(self._entry.get()), bg=theme.WORK,
+                     fg=theme.ON_ACCENT, activebackground=theme.ACCENT).pack(side="right", padx=(0, 6))
+        self.bind("<Return>", lambda e: self._finish(self._entry.get()))
+        self.bind("<Escape>", lambda e: self.destroy())
+        self._entry.focus_set()
+        self._entry.select_range(0, "end")
+        self.update_idletasks()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        self.geometry(f"+{px + (pw - w) // 2}+{py + (ph - h) // 2}")
+        self.grab_set()
+
+    def _finish(self, text):
+        self.destroy()
+        self._on_ok(text)
+
+
 class SizeDialog(tk.Toplevel):
     """New drawing / resize: preset sizes the engine actually uses, or a
     custom width x height (item 13). Calls `on_ok(cols, rows)`."""
@@ -1605,7 +2399,13 @@ HELP_TEXT = [
     ("BUTTONS", None),
     ("SAVE", "write the open drawing to disk now (every stroke is also autosaved)"),
     ("DRAW / ERASE / FILL", "paint one square · clear one square · flood the connected area"),
-    ("UNDO / REDO", "step back / forward, one stroke at a time (a drag or a fill is one stroke)"),
+    ("SELECT", "drag a rectangle. Press inside it and drag to move those cells; "
+               "{mod}+C / {mod}+X / {mod}+V copy, cut, paste; Delete clears; Enter drops a floating block, "
+               "arrow keys nudge it; a click outside drops it too"),
+    ("UNDO / REDO", "step back / forward, one stroke at a time (a drag, a fill, a paste is one stroke)"),
+    ("Eraser W × H", "how many cells the eraser clears at once, centred on the pointer"),
+    ("Grid colour 1 / 2", "the two checkerboard tones behind the art — type a code, … opens a colour "
+                          "picker, DEFAULT puts the matcha tones back"),
     ("#rrggbb  +", "the ink. Click to type a new code, double-click to select it, + adds it to favourites"),
     ("Favourite colours", "your own set — right-click a swatch to remove it"),
     ("Ready colours", "Pixel Pomo's theme tones plus pixel-art staples"),
@@ -1615,20 +2415,30 @@ HELP_TEXT = [
                         "Press ON the bar and drag to move it, or PLACE BAR and click a new spot"),
     ("Symmetry: STICK", "every click paints `length` cells in one go — to the right (─ 180°) or downward (│ 90°)"),
     ("  │ 90° / ─ 180°", "the bar's direction: standing or lying"),
-    ("  length", "how many cells the bar covers (MIRROR: centred on the click; STICK: starting at it)"),
+    ("  length", "how many cells the bar covers (MIRROR: centred on the click; STICK: starting at it). "
+                 "Drag either END of the bar to change it on the canvas"),
+    ("WITH / WITHOUT GRID", "show or hide the cell lines over the drawing"),
+    ("Under the canvas", "pixel count (and the row / column under the cursor, or the selection), the "
+                         "colours in the drawing left to right (click one to use it), the cell and colour "
+                         "under the cursor"),
     ("1x / squint", "the drawing at real size, and at squint-test distance"),
     ("W × H", "the drawing's size — click it to resize (one undo step)"),
     ("UPDATE", "checks GitHub for a newer kit. Windows updates itself (your drawings are untouched, and "
                "backed up first); macOS opens the download page"),
     ("+ NEW DRAWING", "a blank drawing at a garden size: flower, bush, rock, tree, or custom"),
     ("IMPORT PNG…", "bring in art from Procreate/Aseprite/anything; it is saved into the library at once"),
-    ("⋮", "on a library row: Duplicate, Export PNG/JPG/engine sprite, Rename, Species, Size, Delete"),
+    ("▾ ALL (top left)", "filter the library by label"),
+    ("label chip", "left of ⋮ on each row: click to change that drawing's label"),
+    ("⋮", "on a library row: Duplicate, Export PNG (with or without grid) / JPG / engine sprite "
+          "(x16, any size, you name the file), Rename, Label, Size, Delete"),
     ("", None),
     ("KEYBOARD", None),
     ("{mod}+S", "save"),
     ("{mod}+Z / {mod}+Y", "undo / redo  ({mod}+Shift+Z also redoes)"),
     ("{mod}+N", "new drawing"),
-    ("B / E / F", "brush / eraser / fill"),
+    ("B / E / F / S", "brush / eraser / fill / select"),
+    ("{mod}+C / X / V", "copy / cut / paste the selection"),
+    ("Enter · Delete · arrows", "drop the floating block · clear the selection · nudge the block"),
     ("M", "symmetry: OFF → MIRROR → STICK"),
     ("+ / −  or mouse wheel", "zoom in / out"),
     ("Right-click on the canvas", "eyedropper: the colour under the cursor becomes the ink"),
@@ -1650,8 +2460,41 @@ class HelpOverlay(tk.Frame):
                     font=theme.FONT_BOLD).pack(side="left")
         theme.button(head, "\u00d7", on_close, padx=8, pady=0, font=theme.FONT_BOLD,
                      bg=theme.PANEL, activebackground=theme.PANEL_HI).pack(side="right")
-        body = theme.frame(self, bg=theme.PANEL)
-        body.pack(padx=14, pady=(0, 12))
+        if data_dir is not None:
+            # Where the work is — so nobody hunts for it beside the program.
+            # Packed before the body, at the bottom, so it is always visible
+            # however long the list above gets.
+            foot = theme.frame(self, bg=theme.PANEL)
+            foot.pack(side="bottom", fill="x", padx=14, pady=(0, 12))
+            theme.label(foot, "Your drawings:", bg=theme.PANEL, fg=theme.ACCENT,
+                        font=theme.FONT_BOLD).pack(side="left")
+            theme.label(foot, str(data_dir), bg=theme.PANEL, font=theme.FONT_MONO,
+                        fg=theme.WORK).pack(side="left", padx=(8, 8))
+            theme.button(foot, "OPEN FOLDER", lambda: paths.open_in_file_manager(data_dir),
+                         padx=6, pady=1).pack(side="left")
+        # The list itself scrolls (#v2.6.0): it outgrew an 820px window.
+        holder = theme.frame(self, bg=theme.PANEL)
+        holder.pack(padx=14, pady=(0, 8), fill="both", expand=True)
+        parent.update_idletasks()
+        max_h = max(240, parent.winfo_height() - 150)
+        scroller = tk.Canvas(holder, bg=theme.PANEL, highlightthickness=0, width=760, height=max_h)
+        sbar = theme.scrollbar(holder, "vertical")
+        sbar.pack(side="right", fill="y")
+        scroller.pack(side="left", fill="both", expand=True)
+        scroller.configure(yscrollcommand=sbar.set)
+        sbar.configure(command=scroller.yview)
+        body = theme.frame(scroller, bg=theme.PANEL)
+        scroller.create_window((0, 0), window=body, anchor="nw")
+
+        def _fit(_e=None):
+            body.update_idletasks()
+            req_h = body.winfo_reqheight()
+            scroller.configure(scrollregion=(0, 0, body.winfo_reqwidth(), req_h),
+                               height=min(max_h, req_h), width=body.winfo_reqwidth())
+        body.bind("<Configure>", _fit)
+        for w in (scroller, body, self):
+            w.bind("<MouseWheel>", lambda e: scroller.yview_scroll(-1 if e.delta > 0 else 1, "units"))
+        self._scroller = scroller
         mod = theme.modifier_label()
         r = 0
         for key, text in HELP_TEXT:
@@ -1667,16 +2510,10 @@ class HelpOverlay(tk.Frame):
                 theme.label(body, key, bg=theme.PANEL, font=theme.FONT_MONO,
                             fg=theme.WORK).grid(row=r, column=0, sticky="nw", padx=(0, 12))
                 theme.label(body, text.replace("{mod}", mod), bg=theme.PANEL,
-                            justify="left", wraplength=460).grid(row=r, column=1, sticky="w")
+                            justify="left", wraplength=520).grid(row=r, column=1, sticky="w")
             r += 1
-        if data_dir is not None:
-            # Where the work is — so nobody hunts for it beside the program.
-            foot = theme.frame(self, bg=theme.PANEL)
-            foot.pack(fill="x", padx=14, pady=(0, 12))
-            theme.label(foot, "Your drawings:", bg=theme.PANEL, fg=theme.ACCENT,
-                        font=theme.FONT_BOLD).pack(side="left")
-            theme.label(foot, str(data_dir), bg=theme.PANEL, font=theme.FONT_MONO,
-                        fg=theme.WORK).pack(side="left", padx=(8, 8))
-            theme.button(foot, "OPEN FOLDER", lambda: paths.open_in_file_manager(data_dir),
-                         padx=6, pady=1).pack(side="left")
+        for child in body.winfo_children():
+            child.bind("<MouseWheel>",
+                       lambda e: scroller.yview_scroll(-1 if e.delta > 0 else 1, "units"))
+        _fit()
         self.lift()

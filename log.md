@@ -4,6 +4,103 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.6.0 — labels, select/copy/paste, a strip under the canvas, and exports that just write the file
+**Date:** 2026-09-17
+
+**Prompt (Turkish/English, abridged, eleven items):** replace Species… with
+labels that show on each row and filter from the top-left; show-with/without
+grid under Symmetry and, along the bottom of the middle pane, which colours the
+drawing is made of; export with grid; engine export refuses sizes and throws an
+"overwrite" dialog — let any size through and fix the naming; a pixel counter
+bottom-left, per marked row; auto-scroll when dragging to the edge while zoomed
+in; a Grid section above the colour code with two grid colours (typed or from a
+picker) and a default, and the grid not covering the corners; eraser size in X
+and Y; drag to resize the symmetry bar; export filenames editable, sprites
+overwriting each other's names; copy and paste a selected part of the motif and
+move it, with a button and a key (`s`).
+
+### Labels instead of species (item 1)
+
+`Drawing.label` — free text, saved in the JSON (`from_dict` accepts a missing
+or non-string one), copied with the drawing. Seeded drawings are labelled by
+kind: every shipped flower `flower`, props `tree` / `bush` / `rock`, imports
+`import`; a library from before labels gets the same defaults on load. The
+row shows the label as a chip left of `⋮` (click it → `LabelDialog`: labels in
+use as buttons, a field for a new one, NO LABEL); `⋮ → Label…` does the same
+and **Species… is gone**. Top-left of the library, `▾ ALL · 59` drops a menu of
+labels with counts (and *No label* when any); the filter hides rows rather
+than rebuilding them; a drawing created or imported under a filter takes that
+label, and one that would be hidden drops the filter — nothing the artist just
+made can vanish.
+
+### Exports (items 3, 4, 10)
+
+The two screenshots were the strict developer path (`export_engine_sprite`:
+engine names, engine sizes, a "this will overwrite" question) in the artist's
+hands. `⋮ → Export engine sprite…` is now **one ordinary save dialog**: the
+filename is editable right there (default: the engine name for a shipped
+species/prop, else a slug of the drawing's name), any size goes through at x16
+(`engine_io.export_sprite`), and "replace?" is the OS's own question. The
+strict function and its tests stay for the developer.
+**Export PNG with grid…** draws one-pixel lines on every cell boundary
+*including the last pixel row/column*, so the border closes on all four sides
+(`with_grid_lines`).
+
+### The pane and the canvas (items 2, 5, 6, 7, 8, 9)
+
+- **Under the canvas:** `pixels N · row r: k · col c: k` (or `selection
+  w×h: n`), then the drawing's colours **left to right**, most-used first,
+  each with its code and count — click one to make it the ink — and on the
+  right the cell and colour under the cursor.
+- **Grid** section above the ink: `colour 1` / `colour 2`, the two
+  checkerboard tones, as coloured entries (type a code, Enter) with `…` for
+  the system picker and DEFAULT. **The checker now covers every corner**: the
+  blocks were `width // 10` wide, which left a strip whenever the size was not
+  a multiple of ten; edges are integer partitions of the full size now. The
+  cell lines stop one pixel short of the far edge so the last line is visible.
+  **WITH GRID / WITHOUT GRID** under Symmetry; the line colour is derived
+  from colour 2.
+- **Eraser W × H** under UNDO/REDO, centred on the pointer, with a ghost of
+  the footprint under the cursor.
+- **Auto-scroll:** a drag within 24 px of the visible edge scrolls one cell
+  that way (`xscrollincrement` = zoom), so a line continues past the edge
+  while zoomed in.
+- **Resize the bar by dragging an end:** for a bar of 3+ cells the first and
+  last cells are grab handles (cursor becomes the double arrow); the other end
+  stays put, the length follows the pointer, dragging past the other end
+  flips. The middle still moves it.
+- The tools pane **scrolls** (it outgrew 820 px) with the previews / size /
+  UPDATE / HELP fixed at the bottom; the help overlay scrolls too.
+
+### SELECT, copy, paste (item 11)
+
+A fourth tool, `s`. Drag a rectangle (dashed, in the work green). **Ctrl+C**
+copies the cells, **Ctrl+X** cuts (one undo), **Delete** clears. **Ctrl+V**
+puts the clipboard down as a **floating block** at the selection's corner (or
+the top-left of the view) — drawn as an image with a dashed accent border,
+never yet on the drawing. Press inside it and drag, or nudge with the arrow
+keys; **Enter** or a click outside stamps it (one undo, empty cells leave the
+art alone) and the placed area stays selected. Pressing inside an existing
+selection **lifts** those cells off the drawing (one undo) so a part of the
+motif can simply be moved. Esc drops a floating block where it is, then clears
+the selection — never destructive. Switching tool or drawing drops a block
+first. `Drawing.region / stamp / clear_region / count / row_count /
+col_count` are the pure pieces.
+
+**Tests:** 145 → 168. Model +5 (label, counts, region, stamp clipping/skip,
+clear); store +3 (label round-trip, missing/bad label, an old library gets
+kinds labelled and `labels()`); engine_io +4 (any-size x16 export while the
+strict path still refuses, suggested names, grid PNG lines closed on all four
+sides and absent when not asked, default labels for everything seeded);
+settings +2 (grid colours validate/reset, show_grid + clamped eraser persist);
+smoke +9 (labels on chips / filter hides rows / Species gone; a new or
+imported drawing under a filter; eraser footprint; select→copy→paste→drag→
+nudge→commit as one undo; lift by pressing inside and drop by clicking
+outside, each one undo; cut/delete; bar-end drag resizes and flips; grid
+lines toggle, colours, checker corner-to-corner; the strip's counts, colours
+and cursor readout). Auto-scroll was checked by hand with synthetic events
+(scrolls up-left at the top-left edge, down-right at the other).
+
 ## v2.5.0 — a symmetry bar that moves, STICK, import, a portable program and updates that keep the drawings
 **Date:** 2026-09-16
 

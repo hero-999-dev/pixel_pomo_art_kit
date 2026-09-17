@@ -82,6 +82,60 @@ class DrawingTest(unittest.TestCase):
         self.assertIsNone(d.get(0, 0), "editing the copy must not touch the original")
 
 
+class LabelAndBlocksTest(unittest.TestCase):
+    """#v2.6.0: the label field, the pixel counters, and the block helpers
+    behind select / copy / paste."""
+
+    def test_label_defaults_empty_and_survives_copy(self):
+        d = Drawing.blank(4, 4, PAL)
+        self.assertEqual(d.label, "")
+        d.label = "wip"
+        self.assertEqual(d.copy().label, "wip")
+        self.assertEqual(Drawing.blank(2, 2, PAL, label="tree").label, "tree")
+
+    def test_counts_total_row_and_column(self):
+        d = Drawing.blank(4, 3, PAL)
+        for c in range(3):
+            d.paint(c, 1, "m")
+        d.paint(0, 2, "m")
+        self.assertEqual(d.count(), 4)
+        self.assertEqual(d.row_count(1), 3)
+        self.assertEqual(d.row_count(0), 0)
+        self.assertEqual(d.col_count(0), 2)
+        self.assertEqual(d.row_count(99), 0)
+        self.assertEqual(d.col_count(-1), 0)
+
+    def test_region_copies_a_rectangle_in_either_corner_order(self):
+        d = Drawing.blank(5, 5, PAL)
+        d.paint(1, 1, "m")
+        d.paint(2, 2, "l")
+        cells, w, h = d.region(2, 2, 1, 1)
+        self.assertEqual((w, h), (2, 2))
+        self.assertEqual(cells, [["m", None], [None, "l"]])
+        cells[0][0] = "d"
+        self.assertEqual(d.get(1, 1), "m", "a copy, not a view")
+
+    def test_stamp_skips_empty_cells_and_clips_at_the_edge(self):
+        d = Drawing.blank(4, 4, PAL)
+        d.paint(3, 3, "d")
+        d.stamp([["m", None], [None, "l"]], 2, 2)
+        self.assertEqual(d.get(2, 2), "m")
+        self.assertEqual(d.get(3, 3), "l")
+        d.stamp([["m", None]], 3, 3)
+        self.assertEqual(d.get(3, 3), "m")
+        d.stamp([[None, "l"]], 3, 0)  # (4, 0) is off the grid: dropped, no error
+        self.assertIsNone(d.get(3, 0))
+        d.stamp([[None]], 0, 0, skip_empty=False)
+        self.assertIsNone(d.get(0, 0))
+
+    def test_clear_region(self):
+        d = Drawing.blank(4, 4, PAL)
+        for c in range(4):
+            d.paint(c, 0, "m")
+        d.clear_region(2, 0, 1, 0)
+        self.assertEqual([d.get(c, 0) for c in range(4)], ["m", None, None, "m"])
+
+
 class HistoryTest(unittest.TestCase):
     def setUp(self):
         self.h = History(Drawing.blank(4, 3, PAL))

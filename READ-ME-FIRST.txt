@@ -42,10 +42,21 @@ CONTROLS
   Left click       draw (one click, one square)
   Right click      eyedropper — picks up the colour under the cursor
   Drag             continuous line
-  b / e / f        brush / eraser / fill bucket (paints the connected area)
+  b / e / f / s    brush / eraser / fill bucket / select
   m                symmetry: OFF -> MIRROR -> STICK
   Ctrl+S           save                Ctrl+N   new drawing
   Ctrl+Z           undo                Ctrl+Y   redo
+  SELECT           drag a rectangle. Ctrl+C copy, Ctrl+X cut, Delete clear.
+                   Ctrl+V pastes a floating block: drag it with the mouse or
+                   the arrow keys, Enter (or a click outside) puts it down.
+                   Press inside a selection and drag to move that part.
+  Eraser W x H     how many squares the eraser clears at once
+  Grid             colour 1 / colour 2 = the checkerboard behind the art.
+                   Type a code, or "..." for a colour picker. DEFAULT resets.
+  WITH / WITHOUT GRID   show or hide the cell lines
+  Under the canvas pixel count (row / column under the cursor), the colours
+                   in the drawing left to right (click one to use it), and
+                   the square + colour under the cursor.
   Mouse wheel, + - zoom in / out
   F1               help panel (every button and key)   Esc closes it
   Colours          panel on the right:
@@ -64,6 +75,7 @@ CONTROLS
                            "length" = how many squares long. Painting along
                            the bar is mirrored across it. To MOVE the bar:
                            press on it and drag, or PLACE BAR and click.
+                           Drag either END of the bar to make it longer.
                    STICK   every click paints "length" squares in one go —
                            to the right (- 180) or downward (| 90).
 
@@ -71,10 +83,14 @@ CONTROLS
 THE THREE PANES
 ---------------
   Left    your drawings. Click one to open it.
+          The button at the top ("ALL") filters by LABEL. Each row shows its
+          label left of the  menu — click the label to change it.
           "+ NEW DRAWING" asks for a size: Flower, Bush, Rock, Tree, or your own.
           "IMPORT PNG..." brings in art from another program and saves it
           into your library right away.
-          The  menu on each row: Duplicate, Export, Rename, Species, Size, Delete.
+          The  menu on each row: Duplicate, Export PNG (with or without
+          grid), Export JPG, Export engine sprite (x16, any size, you name
+          the file), Rename, Label, Size, Delete.
   Middle  the canvas.
   Right   SAVE, tools, colours, symmetry; and in the bottom-right corner
           two live previews — one at real size, one at a "squint test"

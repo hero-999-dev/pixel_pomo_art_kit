@@ -97,6 +97,16 @@ def is_forest(species):
     return species in FOREST_KINDS
 
 
+def default_label(species):
+    """The label a seeded drawing starts with (#v2.6.0): 'flower' for every
+    shipped species, the kind itself for a forest prop, nothing otherwise."""
+    if species in FOREST_KINDS:
+        return species
+    if species in SPECIES:
+        return "flower"
+    return ""
+
+
 def _palette_for(species):
     g = gen_objects()
     if species == "gul":
@@ -125,7 +135,7 @@ def import_flower(species, model):
         grid = g.rose_variant(model)  # already outlined and composited
         cells = [[px if px[3] else None for px in row] for row in grid]
         return Drawing(name=name, species=species, model=model, cells=cells,
-                       palette=palette)
+                       palette=palette, label=default_label(species))
     rows = g._FLOWER_BLOOMS[species][model]
     cells = []
     for line in rows:
@@ -135,7 +145,7 @@ def import_flower(species, model):
             row.append(ch if ch != "." else None)
         cells.append(row)
     return Drawing(name=name, species=species, model=model, cells=cells,
-                   palette=palette)
+                   palette=palette, label=default_label(species))
 
 
 def import_forest_prop(kind, index):
@@ -151,7 +161,7 @@ def import_forest_prop(kind, index):
     grid = maker(index + 1)  # the generators are 1-based
     cells = [[px if px[3] else None for px in row] for row in grid]
     return Drawing(name=display_name(kind, index), species=kind, model=index, cells=cells,
-                   palette=_forest_palette())
+                   palette=_forest_palette(), label=default_label(kind))
 
 
 def forest_canvas(kind, index):
@@ -215,9 +225,60 @@ def _scaled(drawing, scale):
     return gen_objects().upscale(render(drawing), scale)
 
 
-def export_png(drawing, path, scale=16):
+def export_png(drawing, path, scale=16, grid=None):
+    """An RGBA PNG at `scale` px per cell. `grid` (a hex colour) draws a
+    one-pixel line along every cell boundary, the outer edge included — the
+    "export with grid" the artists asked for (#v2.6.0), for sharing a
+    work-in-progress where the cells have to be countable."""
+    big = _scaled(drawing, scale)
+    if grid is not None:
+        big = with_grid_lines(big, scale, grid)
+    gen_objects().write_png(str(path), big)
+    return Path(path)
+
+
+def with_grid_lines(big, scale, hexcol):
+    """`big` (an upscaled RGBA grid) with `hexcol` lines on the cell
+    boundaries. Lines sit on the first pixel row/column of each cell and on
+    the very last pixel of the image, so the outer border is closed on all
+    four sides — the on-canvas grid used to lose its right and bottom edge
+    for exactly this off-by-one (#v2.6.0)."""
+    h = hexcol.lstrip("#")
+    line = (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16), 255)
+    height, width = len(big), len(big[0])
+    out = [list(row) for row in big]
+    xs = set(range(0, width, scale)) | {width - 1}
+    ys = set(range(0, height, scale)) | {height - 1}
+    for y in range(height):
+        row = out[y]
+        if y in ys:
+            out[y] = [line] * width
+            continue
+        for x in xs:
+            row[x] = line
+    return out
+
+
+def export_sprite(drawing, path, scale=16):
+    """The engine-scale sprite of ANY drawing, at a path the artist chose
+    (#v2.6.0). `export_engine_sprite` below stays the strict developer path
+    — engine names, engine sizes, refusals — this one is the artist's: x16,
+    RGBA, whatever size the drawing is, whatever the file is called. The
+    developer resizes or renames if the garden needs it."""
+    if scale < 1:
+        raise ExportRefused(f"scale must be at least 1, got {scale}")
     gen_objects().write_png(str(path), _scaled(drawing, scale))
     return Path(path)
+
+
+def suggested_sprite_name(drawing):
+    """A default filename for `export_sprite`: the engine's own name when the
+    drawing is a shipped species/prop, else a slug of the artist's name."""
+    if drawing.species and (is_forest(drawing.species) or drawing.species in SPECIES):
+        return engine_sprite_names(drawing)[0]
+    import re
+    slug = re.sub(r"[^a-z0-9_-]+", "_", (drawing.name or "sprite").lower()).strip("_")
+    return f"{slug or 'sprite'}.png"
 
 
 def export_jpg(drawing, path, scale=16, background=(255, 255, 255)):
@@ -399,8 +460,8 @@ def import_png(path, cells=None, alpha_cutoff=ALPHA_CUTOFF):
             "everything in that image was too faint to keep — it may be anti-aliased "
             "to near-nothing, or saved with no opaque pixels")
 
-    return Drawing(name=path.stem, species=None, model=0, cells=cells_out,
-                   palette=_forest_palette()), notes
+    return Drawing(name=path.stem, species="", model=0, cells=cells_out,
+                   palette=_forest_palette(), label="import"), notes
 
 
 #: Grid sizes the engine actually uses: flowers/bushes/rocks are 16, trees are

@@ -19,6 +19,10 @@ DEFAULTS = {
     "tool": "draw",
     "symmetry": {"orientation": "vertical", "length": 5, "mode": "off"},
     "help_seen": False,
+    # #v2.6.0
+    "grid": {"c1": "232F28", "c2": "2A3A30"},  # the two checkerboard tones (theme.CHECKER)
+    "show_grid": True,                          # the cell lines over the art
+    "eraser": {"w": 1, "h": 1},
 }
 
 
@@ -97,6 +101,51 @@ class Settings:
         current = self.symmetry
         self.data["symmetry"] = {"orientation": orientation, "length": int(length),
                                  "mode": mode if mode is not None else current["mode"]}
+        self.save()
+
+
+    # --- #v2.6.0 ---------------------------------------------------------------
+    @property
+    def grid(self):
+        merged = dict(DEFAULTS["grid"])
+        for key, value in self.data["grid"].items():
+            if key in merged and isinstance(value, str) and _is_hex(value):
+                merged[key] = value.lstrip("#").upper()
+        return merged
+
+    def set_grid(self, c1=None, c2=None):
+        grid = self.grid
+        if c1 is not None and _is_hex(c1):
+            grid["c1"] = c1.lstrip("#").upper()
+        if c2 is not None and _is_hex(c2):
+            grid["c2"] = c2.lstrip("#").upper()
+        self.data["grid"] = grid
+        self.save()
+
+    def reset_grid(self):
+        self.data["grid"] = dict(DEFAULTS["grid"])
+        self.save()
+
+    @property
+    def show_grid(self):
+        return bool(self.data["show_grid"])
+
+    @show_grid.setter
+    def show_grid(self, value):
+        self.data["show_grid"] = bool(value)
+        self.save()
+
+    @property
+    def eraser(self):
+        merged = dict(DEFAULTS["eraser"])
+        for key in ("w", "h"):
+            value = self.data["eraser"].get(key)
+            if isinstance(value, int) and 1 <= value <= 64:
+                merged[key] = value
+        return merged
+
+    def set_eraser(self, w, h):
+        self.data["eraser"] = {"w": max(1, min(64, int(w))), "h": max(1, min(64, int(h)))}
         self.save()
 
 

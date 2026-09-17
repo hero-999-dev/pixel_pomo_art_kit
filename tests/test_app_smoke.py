@@ -452,6 +452,187 @@ class AppSmokeTest(unittest.TestCase):
         img = raster.photo(grid, 2, master=self.root)
         self.assertEqual((img.width(), img.height()), (32, 32))
 
+    # ---- #v2.6.0 ------------------------------------------------------------
+
+    def test_labels_show_on_rows_filter_the_list_and_save(self):
+        drawing = self.lib.drawings[0]
+        self.assertEqual(drawing.label, "flower")
+        self.assertEqual(self.ui._rows[id(drawing)]["chip"].cget("text"), "flower")
+        self.ui.set_label(drawing, "  wip ")
+        self.assertEqual(drawing.label, "wip")
+        self.assertEqual(store.load(self.lib._paths[id(drawing)]).label, "wip")
+        self.assertEqual(self.ui._rows[id(drawing)]["chip"].cget("text"), "wip")
+        self.ui.set_label_filter("tree")
+        visible = self.ui.visible_drawings()
+        self.assertEqual(len(visible), 20)
+        self.assertTrue(all(d.label == "tree" for d in visible))
+        self.assertFalse(self.ui._rows[id(drawing)]["row"].winfo_manager(), "hidden by the filter")
+        self.assertTrue(self.ui._rows[id(visible[0])]["row"].winfo_manager())
+        self.assertIn("TREE", self.ui._filter_button.cget("text"))
+        self.ui.set_label_filter(None)
+        self.assertTrue(self.ui._rows[id(drawing)]["row"].winfo_manager())
+        self.assertEqual(len(self.ui.visible_drawings()), SEEDED)
+        self.assertFalse(hasattr(self.ui, "_set_species"), "Species… left the menu")
+
+    def test_a_new_drawing_under_a_filter_takes_that_label_and_stays_visible(self):
+        self.ui.set_label_filter("bush")
+        d = self.ui.new_drawing(8, 8)
+        self.assertEqual(d.label, "bush")
+        self.assertTrue(self.ui._rows[id(d)]["row"].winfo_manager())
+        self.ui.set_label_filter("rock")
+        e = self.ui.import_png(self._png())[0]
+        self.assertEqual(e.label, "import")
+        self.assertIsNone(self.ui._label_filter, "a filter that would hide the new drawing is dropped")
+
+    def _png(self):
+        from PIL import Image
+        png = Path(self.tmp.name) / "bit.png"
+        img = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+        img.putpixel((0, 0), (9, 9, 9, 255))
+        img.save(png)
+        return png
+
+    def test_the_eraser_footprint_is_centred_and_sized(self):
+        self.ui.new_drawing(10, 10)
+        d = self.ui.history.current
+        for r in range(10):
+            for c in range(10):
+                d.paint(c, r, "m")
+        self.ui.set_tool("erase")
+        self.ui.set_eraser_size(3, 2)
+        self.assertEqual(self.settings.eraser, {"w": 3, "h": 2})
+        self.ui.on_canvas_press(5, 5)
+        self.ui.on_canvas_release()
+        d = self.ui.history.current
+        cleared = {(c, r) for r in range(10) for c in range(10) if d.get(c, r) is None}
+        self.assertEqual(cleared, {(4, 4), (5, 4), (6, 4), (4, 5), (5, 5), (6, 5)})
+
+    def test_select_copy_paste_and_move(self):
+        self.ui.new_drawing(12, 12)
+        d = self.ui.history.current
+        d.paint(1, 1, "m")
+        d.paint(2, 2, "l")
+        self.ui.set_tool("select")
+        self.ui.on_canvas_press(1, 1)
+        self.ui.on_canvas_drag(2, 2)
+        self.ui.on_canvas_release()
+        self.assertEqual(self.ui.selection, (1, 1, 2, 2))
+        self.assertTrue(self.ui.copy_selection())
+        self.assertEqual(self.ui.clipboard[1:], (2, 2))
+        self.assertTrue(self.ui.paste(6, 6))
+        self.assertEqual((self.ui.floating["col"], self.ui.floating["row"]), (6, 6))
+        self.assertIsNone(self.ui.history.current.get(6, 6), "floating, not yet on the drawing")
+        self.ui.on_canvas_press(6, 6)      # inside the block: drag it
+        self.ui.on_canvas_drag(8, 7)
+        self.ui.on_canvas_release()
+        self.assertEqual((self.ui.floating["col"], self.ui.floating["row"]), (8, 7))
+        self.ui.nudge_floating(1, 0)
+        self.assertTrue(self.ui.commit_floating())
+        d = self.ui.history.current
+        self.assertEqual(d.get(9, 7), "m")
+        self.assertEqual(d.get(10, 8), "l")
+        self.assertEqual(d.get(1, 1), "m", "the original stays")
+        self.assertEqual(self.ui.selection, (9, 7, 10, 8), "the placed block stays selected")
+        self.ui.undo()
+        self.assertIsNone(self.ui.history.current.get(9, 7), "a paste is one undo step")
+
+    def test_pressing_inside_a_selection_lifts_it_and_a_click_outside_drops_it(self):
+        self.ui.new_drawing(12, 12)
+        d = self.ui.history.current
+        d.paint(1, 1, "m")
+        self.ui.set_tool("select")
+        self.ui.select_region(1, 1, 2, 2)
+        self.ui.on_canvas_press(1, 1)  # inside -> lifted
+        self.assertIsNotNone(self.ui.floating)
+        self.assertIsNone(self.ui.history.current.get(1, 1), "lifted off the drawing")
+        self.ui.on_canvas_drag(5, 5)
+        self.ui.on_canvas_release()
+        self.ui.on_canvas_press(0, 11)   # outside -> dropped where it is, nothing painted at (0, 11)
+        self.assertIsNone(self.ui.floating)
+        d = self.ui.history.current
+        self.assertEqual(d.get(5, 5), "m")
+        self.assertIsNone(d.get(0, 11))
+        self.ui.undo()
+        self.ui.undo()
+        self.assertEqual(self.ui.history.current.get(1, 1), "m", "lift and drop each undo")
+
+    def test_cut_and_delete_clear_the_selection_as_strokes(self):
+        self.ui.new_drawing(6, 6)
+        self.ui.history.current.paint(2, 2, "m")
+        self.ui.select_region(2, 2, 3, 3)
+        self.assertTrue(self.ui.cut_selection())
+        self.assertIsNone(self.ui.history.current.get(2, 2))
+        self.assertEqual(self.ui.clipboard[0][0][0], "m")
+        self.ui.undo()
+        self.assertEqual(self.ui.history.current.get(2, 2), "m")
+        self.ui.select_region(2, 2, 2, 2)
+        self.assertTrue(self.ui.delete_selection())
+        self.assertIsNone(self.ui.history.current.get(2, 2))
+        self.ui.clear_selection()
+        self.assertFalse(self.ui.copy_selection(), "nothing selected, nothing copied")
+
+    def test_dragging_a_bar_end_resizes_it(self):
+        self.ui.new_drawing(16, 16)
+        self.ui.set_symmetry_mode(symmetry.MIRROR)
+        self.ui.set_symmetry_length(5)
+        self.ui.place_symmetry_bar(7, 7)       # vertical, rows 5..9
+        self.ui.on_canvas_press(7, 9)          # the last cell
+        self.ui.on_canvas_drag(7, 12)
+        self.ui.on_canvas_release()
+        bar = self.ui.symmetry_bar
+        self.assertEqual(bar.span(), (5, 12))
+        self.assertEqual(bar.length, 8)
+        self.assertEqual(self.settings.symmetry["length"], 8)
+        self.assertTrue(all(c is None for row in self.ui.history.current.cells for c in row))
+        self.ui.on_canvas_press(7, 5)          # the first cell, dragged past the other end
+        self.ui.on_canvas_drag(7, 11)
+        self.ui.on_canvas_release()
+        self.assertEqual(self.ui.symmetry_bar.span(), (11, 12))
+
+    def test_grid_lines_toggle_and_grid_colours(self):
+        self.ui.select(self.lib.drawings[1])
+        self.ui.zoom_level = 20
+        self.ui.set_show_grid(True)
+        self.assertTrue(self.ui.canvas.find_withtag("grid"))
+        self.ui.set_show_grid(False)
+        self.assertFalse(self.ui.canvas.find_withtag("grid"))
+        self.assertFalse(self.settings.show_grid)
+        self.ui.set_grid_colours(c1="402020")
+        self.assertEqual(self.ui.grid_colours(), ("#402020", "#2a3a30"))
+        self.assertEqual(self.ui._grid_entries["c1"].get(), "#402020")
+        checker = self.ui.canvas.find_withtag("checker")
+        self.assertEqual(len(checker), 100)
+        # the checker covers the whole drawing, corner to corner
+        d = self.ui.history.current
+        x1 = max(self.ui.canvas.coords(i)[2] for i in checker)
+        y1 = max(self.ui.canvas.coords(i)[3] for i in checker)
+        self.assertEqual((x1, y1), (d.width * 20, d.height * 20))
+        self.ui.reset_grid_colours()
+        self.assertEqual(self.ui.grid_colours(), ("#232f28", "#2a3a30"))
+
+    def test_the_strip_under_the_canvas_counts_pixels_and_lists_colours(self):
+        self.ui.new_drawing(6, 6)
+        d = self.ui.history.current
+        self.ui.set_tool("draw")
+        self.ui.set_ink((255, 0, 0, 255))
+        self.ui.on_canvas_press(0, 0)
+        self.ui.on_canvas_drag(3, 0)
+        self.ui.on_canvas_release()
+        self.ui.set_ink((0, 0, 255, 255))
+        self.ui.on_canvas_press(0, 1)
+        self.ui.on_canvas_release()
+        self.assertIn("pixels 5", self.ui._counter_label.cget("text"))
+        self.ui._hover_cell = (0, 0)
+        self.ui._refresh_counter()
+        self.ui._refresh_cursor_label()
+        self.assertIn("row 0: 4", self.ui._counter_label.cget("text"))
+        self.assertIn("col 0: 2", self.ui._counter_label.cget("text"))
+        self.assertIn("#ff0000", self.ui._cursor_label.cget("text"))
+        self.assertEqual([h for h, _ in self.ui._colour_strip._items], ["FF0000", "0000FF"])
+        self.assertEqual(self.ui._colour_strip._items[0][1], 4)
+        self.ui.select_region(0, 0, 5, 0)
+        self.assertIn("selection 6\u00d71: 4", self.ui._counter_label.cget("text"))
+
     def test_the_saved_file_tracks_an_undo_not_just_memory(self):
         # History.undo() swaps .current to a different object; the app reconciles
         # that before library.save(). Without the reconciliation the on-disk file
