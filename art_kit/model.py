@@ -73,6 +73,10 @@ class Drawing:
         """How many cells are painted."""
         return sum(1 for row in self.cells for c in row if c is not None)
 
+    def empty_count(self):
+        """How many cells are still empty (#v2.7.0, item 5)."""
+        return self.width * self.height - self.count()
+
     def row_count(self, row):
         return sum(1 for c in self.cells[row] if c is not None) if 0 <= row < self.height else 0
 
@@ -126,6 +130,14 @@ class Drawing:
 
     def erase(self, col, row):
         self.paint(col, row, None)
+
+    def fill_region(self, c0, r0, c1, r1, value):
+        """Paint every cell in the inclusive rectangle (#v2.7.0, item 8)."""
+        c0, c1 = sorted((c0, c1))
+        r0, r1 = sorted((r0, r1))
+        for r in range(r0, r1 + 1):
+            for c in range(c0, c1 + 1):
+                self.paint(c, r, value)
 
     def flood(self, col, row, value):
         """Fill the connected region of cells equal to the start cell."""

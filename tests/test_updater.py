@@ -120,7 +120,10 @@ class DownloadAndStageTest(unittest.TestCase):
         self.assertIn(str(os.getpid()), text)
         self.assertIn("PixelPomoArtKit.old.exe", text, "the old exe is kept for a revert")
         self.assertIn(f'move /y "{new_exe}" "{exe}"', text)
-        self.assertIn(f'start "" "{exe}"', text)
+        self.assertIn(f'start "" /D "{exe.parent}" "{exe}"', text)
+        self.assertIn("_MEIPASS", text)
+        self.assertIn("set _MEI", text)
+        self.assertIn("set _PYI", text)
 
     def test_stage_windows_refuses_a_zip_without_the_exe(self):
         zip_path = self.dir / "odd.zip"

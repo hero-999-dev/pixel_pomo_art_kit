@@ -32,7 +32,8 @@ import webbrowser
 from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
 
-from art_kit import branding, engine_io, paths, raster, symmetry, theme, updater
+from art_kit import branding, engine_io, i18n, paths, raster, store, symmetry, theme, updater
+from art_kit.i18n import t
 from art_kit.model import Drawing, History, LETTERS, Palette, hex_to_rgba
 from art_kit.settings import Settings
 from art_kit.version import VERSION
@@ -73,6 +74,8 @@ INNER_W = TOOLS_W - 1 - PAD - SCROLLBAR_W  # minus the separator line, the left 
 SWATCH_COLS = 8
 PICKER_W, SV_H, HUE_H = INNER_W, 100, 14
 LIBRARY_W = 220
+LIBRARY_RAIL = 18  # hamburger + scrollbar column (#v2.7.0, item 11)
+ZOOM_HANDLE = 12   # px grab around the drawing's bottom-right corner (#v2.7.0, item 15)
 
 NEW_SIZE = 32  # new drawings: room for the trees and pets that are coming
 MAX_SIZE = 64
@@ -163,8 +166,7 @@ def size_presets():
     13). Read from the engine where the engine has an opinion — a flower's
     height, a tree's tiles — so the dialog cannot drift from what exports."""
     g = engine_io.gen_objects()
-    flower_h = len(g._FLOWER_BLOOMS["lale"][0])
-    presets = [("Flower", 16, flower_h), ("Bush", 16, 16), ("Rock", 16, 16)]
+    presets = [("Flower", 16, 16), ("Bug", 8, 8), ("Bush", 16, 16), ("Rock", 16, 16)]
     for tiles in sorted(set(g.TREE_TILES)):
         px = tiles * g.TREE_PX_PER_TILE
         presets.append((f"Tree \u00b7 {tiles} tiles", px, px))
@@ -211,6 +213,11 @@ class ArtKitApp:
         self._dragging_float = None
         self._label_filter = None  # None = every drawing; "" = unlabelled; else that label
         self._hover_cell = None
+        self._paste_armed = False  # after Ctrl+C, the next click pastes (#v2.7.0, item 7)
+        self._library_collapsed = bool(self.settings.library_collapsed)
+        self._zoom_drag = None     # (start_zoom,) while the corner handle is dragged
+        self._view_undo = []       # previous zoom levels from the corner handle
+        i18n.set_language(self.settings.language)
 
         theme.setup(root)
         branding.apply_window_icon(root)
@@ -378,8 +385,22 @@ class ArtKitApp:
     def set_tool(self, name):
         if name not in TOOLS:
             raise ValueError(f"tool must be one of {TOOLS}, got {name!r}")
+        if name == "fill" and self.selection is not None:
+            # SELECT then FILL fills the rectangle, which is what the button
+            # reads as — not "switch to the flood tool and wait for a click"
+            # (#v2.7.0, item 8).
+            self.fill_selection()
+            self.clear_selection()
+        if name == "select" and self.tool == "select":
+            # Clicking SELECT again dismisses the stuck rectangle.
+            self.commit_floating()
+            self.clear_selection()
+            self._refresh_tool_buttons()
+            return
         if self.tool == "select" and name != "select":
             self.commit_floating()
+            if name != "fill":
+                self.clear_selection()
         self.tool = name
         self.settings.tool = name  # the last tool used is the one selected next time (item 12)
         self._refresh_tool_buttons()
@@ -451,8 +472,25 @@ class ArtKitApp:
         self.zoom_level = max(MIN_ZOOM, min(MAX_ZOOM, self.zoom_level + delta * 2))
         self._draw_main()  # previews are fixed-scale; only the main view depends on zoom
 
+    def set_zoom(self, z, undoable=False):
+        """Set the cell size in pixels. A corner-drag records the previous
+        zoom so Ctrl+Z puts it back (#v2.7.0, item 15)."""
+        z = max(MIN_ZOOM, min(MAX_ZOOM, int(z)))
+        if z == self.zoom_level:
+            return
+        if undoable:
+            self._view_undo.append(self.zoom_level)
+        self.zoom_level = z
+        self._draw_main()
+
     def undo(self):
-        if self.history is None or self._painting:
+        if self._painting:
+            return
+        if self._view_undo:
+            self.zoom_level = self._view_undo.pop()
+            self._draw_main()
+            return
+        if self.history is None:
             return
         self.history.undo()
         self._after_change()
@@ -502,9 +540,9 @@ class ArtKitApp:
         if mode not in symmetry.MODES:
             raise ValueError(f"mode must be one of {symmetry.MODES}, got {mode!r}")
         self.symmetry_mode = mode
-        # MIRROR with no bar yet arms placement: the next canvas click puts
-        # the bar there instead of painting. STICK needs no bar.
-        self._placing_bar = mode == symmetry.MIRROR and self.symmetry_bar is None
+        # MIRROR and STICK share a between-pixel line. With no line yet the
+        # next canvas click places it instead of painting (#v2.7.0, item 12).
+        self._placing_bar = mode in (symmetry.MIRROR, symmetry.STICK) and self.symmetry_bar is None
         self._dragging_bar = None
         self.settings.set_symmetry(self._sym_orientation, self._sym_length, mode)
         self._refresh_symmetry_ui()
@@ -516,8 +554,8 @@ class ArtKitApp:
         self.set_symmetry_mode(symmetry.MODES[(i + 1) % len(symmetry.MODES)])
 
     def arm_symmetry_placement(self):
-        """PLACE BAR: the next click moves the bar (or places it)."""
-        if self.symmetry_mode == symmetry.MIRROR:
+        """PLACE BAR: the next click moves the line (or places it)."""
+        if self.symmetry_mode in (symmetry.MIRROR, symmetry.STICK):
             self._placing_bar = True
             self._refresh_symmetry_ui()
 
@@ -545,6 +583,8 @@ class ArtKitApp:
     def place_symmetry_bar(self, col, row):
         self.symmetry_bar = symmetry.Bar(self._sym_orientation, self._sym_length, col, row)
         self._placing_bar = False
+        if self.symmetry_mode == symmetry.STICK:
+            self._stamp_stick()
         self._refresh_symmetry_ui()
         self._draw_main()
 
@@ -561,24 +601,41 @@ class ArtKitApp:
             self.symmetry_bar = self.symmetry_bar.moved_to(col, row)
             self._draw_main()
 
+    def _stamp_stick(self):
+        """STICK: copy the length-span across the line as one undo step."""
+        if self.history is None or self.symmetry_bar is None:
+            return
+        self.history.begin_stroke()
+        symmetry.stamp_across(self.history.current, self.symmetry_bar)
+        self.history.end_stroke()
+        if self.history.can_undo():
+            self._after_change()
+
     def _active_bar(self):
-        return self.symmetry_bar if self.symmetry_mode == symmetry.MIRROR else None
+        return self.symmetry_bar if self.symmetry_mode in (symmetry.MIRROR, symmetry.STICK) else None
 
     def _on_bar(self, col, row):
         bar = self._active_bar()
-        return bar is not None and (col, row) in bar.cells()
+        return bar is not None and bar.touches(col, row)
 
     def _on_bar_end(self, col, row):
-        """Is (col, row) the first or last cell of a bar long enough to have
-        ends worth grabbing? Dragging one resizes the bar (#v2.6.0, item 9);
-        the middle cells still move it."""
+        """Is (col, row) at either end of a line long enough to grab?
+        Dragging one resizes the line (#v2.6.0, item 9); the middle still
+        moves it. Either neighbouring cell of an end counts, because the
+        line sits between pixels (#v2.7.0)."""
         bar = self._active_bar()
         if bar is None or bar.length < 3:
             return None
-        cells = bar.cells()
-        if (col, row) == cells[0]:
+        first, last = bar.cells()[0], bar.cells()[-1]
+        if bar.orientation == symmetry.VERTICAL:
+            firsts = {first, (first[0] - 1, first[1])}
+            lasts = {last, (last[0] - 1, last[1])}
+        else:
+            firsts = {first, (first[0], first[1] - 1)}
+            lasts = {last, (last[0], last[1] - 1)}
+        if (col, row) in firsts:
             return "first"
-        if (col, row) == cells[-1]:
+        if (col, row) in lasts:
             return "last"
         return None
 
@@ -607,9 +664,22 @@ class ArtKitApp:
     def on_canvas_press(self, col, row):
         if self.history is None:
             return
+        d = self.history.current
+        if not d._inside(col, row):
+            if self.floating is not None:
+                self.commit_floating()
+            elif self.selection is not None:
+                self.clear_selection()
+            return
         if self._placing_bar:
             self.place_symmetry_bar(col, row)
             return
+        if self._paste_armed and self.clipboard is not None and self.floating is None:
+            # after Ctrl+C, a click pastes at that cell (#v2.7.0, item 7)
+            if not (self.tool == "select" and self.selection is not None
+                    and self._in_selection(col, row)):
+                self.paste_at(col, row)
+                return
         if self.floating is not None:
             if self._in_floating(col, row):
                 self._dragging_float = (self.floating["col"] - col, self.floating["row"] - row)
@@ -623,8 +693,7 @@ class ArtKitApp:
             self._resizing_bar = other[1] if self.symmetry_bar.orientation == symmetry.VERTICAL else other[0]
             return
         if self._on_bar(col, row):
-            # Pressing ON the bar picks it up: drag to move, release to drop.
-            # This is what "the bar gets stuck" (#v2.5.0) was missing.
+            # Pressing ON the line picks it up: drag to move, release to drop.
             bar = self.symmetry_bar
             self._dragging_bar = (bar.col - col, bar.row - row)
             return
@@ -735,7 +804,9 @@ class ArtKitApp:
             return False
         cells, w, h = self.history.current.region(*self.selection)
         self.clipboard = (cells, w, h)
-        self._set_status(f"copied {w}\u00d7{h}", flash=True)
+        self._paste_armed = True
+        self._set_status(t("copied", w=w, h=h) + " \u00b7 " + t("paste_hint", mod=theme.modifier_label()),
+                         flash=True)
         return True
 
     def cut_selection(self):
@@ -747,7 +818,7 @@ class ArtKitApp:
         d.clear_region(*self.selection)
         self.history.end_stroke()
         self._after_change()
-        self._set_status("cut", flash=True)
+        self._set_status(t("cut"), flash=True)
         return True
 
     def delete_selection(self):
@@ -784,11 +855,37 @@ class ArtKitApp:
                 row = int(self.canvas.canvasy(0)) // z
         self.floating = {"cells": [list(r) for r in cells], "w": w, "h": h, "col": col, "row": row}
         self.selection = None
+        self._paste_armed = False
         if self.tool != "select":
             self.set_tool("select")
         self._draw_overlays()
         self._refresh_counter()
-        self._set_status("drag it, Enter to place", flash=True)
+        self._set_status(t("paste_drag"), flash=True)
+        return True
+
+    def paste_at(self, col, row):
+        """Click-to-paste: stamp the clipboard at (col, row) as one undo step
+        (#v2.7.0, item 7). Works across drawings because the clipboard lives
+        on the window, not on the drawing."""
+        if self.history is None or self.clipboard is None:
+            return False
+        cells, w, h = self.clipboard
+        self.history.begin_stroke()
+        self.history.current.stamp(cells, col, row)
+        self.history.end_stroke()
+        self._paste_armed = False
+        self.selection = self._normalised(col, row, col + w - 1, row + h - 1)
+        self._after_change()
+        return True
+
+    def fill_selection(self):
+        """FILL with a selection active: paint the whole rectangle (#v2.7.0)."""
+        if self.history is None or self.selection is None:
+            return False
+        self.history.begin_stroke()
+        self.history.current.fill_region(*self.selection, self.ink)
+        self.history.end_stroke()
+        self._after_change()
         return True
 
     def lift_selection(self):
@@ -851,10 +948,7 @@ class ArtKitApp:
 
     def _target_cells(self, col, row):
         """The cells one pointer cell turns into under the current symmetry
-        mode: itself and its mirror twin (MIRROR), a run of `length` (STICK),
-        or just itself."""
-        if self.symmetry_mode == symmetry.STICK:
-            return symmetry.expand_stick(self._sym_orientation, self._sym_length, [(col, row)])
+        mode: itself and its mirror twin (MIRROR and STICK), or just itself."""
         return symmetry.expand(self._active_bar(), [(col, row)])
 
     def _eraser_cells(self, col, row):
@@ -920,30 +1014,44 @@ class ArtKitApp:
         self._bind_keys()
 
     def _build_library_pane(self, parent):
-        frame = theme.frame(parent, width=LIBRARY_W)
-        frame.pack(side="left", fill="y")
-        frame.pack_propagate(False)
+        outer = theme.frame(parent, width=LIBRARY_W)
+        outer.pack(side="left", fill="y")
+        outer.pack_propagate(False)
+        self._library_outer = outer
 
-        # IMPORT sits under NEW DRAWING (#v2.5.0): outside PNGs come in and
-        # are saved into the library straight away.
-        import_btn = theme.button(frame, "IMPORT PNG\u2026", self._import_dialog)
+        # Right rail: hamburger above the scrollbar, sharing the same right
+        # edge so the ☰ sits in the corner of ALL and does not overhang
+        # (#v2.7.0, item 11).
+        rail = theme.frame(outer, width=LIBRARY_RAIL)
+        rail.pack(side="right", fill="y")
+        rail.pack_propagate(False)
+        self._library_rail = rail
+        self._library_toggle = theme.button(rail, "\u2630", self.toggle_library,
+                                           padx=1, pady=2, font=theme.FONT_BOLD)
+        self._library_toggle.pack(side="top", fill="x")
+        scrollbar = theme.scrollbar(rail, "vertical")
+        scrollbar.pack(side="top", fill="both", expand=True)
+
+        body = theme.frame(outer)
+        body.pack(side="left", fill="both", expand=True)
+        self._library_body = body
+
+        import_btn = theme.button(body, t("import_png"), self._import_dialog)
         import_btn.pack(side="bottom", fill="x", padx=PAD, pady=(0, PAD))
-        new_btn = theme.button(frame, "+ NEW DRAWING", self._new_drawing_dialog,
+        self._import_button = import_btn
+        new_btn = theme.button(body, t("new_drawing"), self._new_drawing_dialog,
                                bg=theme.WORK, fg=theme.ON_ACCENT,
                                activebackground=theme.ACCENT, activeforeground=theme.ON_ACCENT)
         new_btn.pack(side="bottom", fill="x", padx=PAD, pady=(PAD, 4))
+        self._new_button = new_btn
 
-        # The label filter, top-left (#v2.6.0, item 1): one button that
-        # names the current filter and drops a menu of every label in use.
-        filter_row = theme.frame(frame)
+        filter_row = theme.frame(body)
         filter_row.pack(side="top", fill="x", padx=PAD, pady=(PAD, 4))
         self._filter_button = theme.button(filter_row, "", self._post_filter_menu, anchor="w")
         self._filter_button.pack(fill="x")
         self._refresh_filter_button()
 
-        scrollbar = theme.scrollbar(frame, "vertical")
-        scrollbar.pack(side="right", fill="y")
-        self._list_canvas = tk.Canvas(frame, highlightthickness=0, bg=theme.BG)
+        self._list_canvas = tk.Canvas(body, highlightthickness=0, bg=theme.BG)
         self._list_canvas.pack(side="left", fill="both", expand=True)
         self._list_canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.configure(command=self._list_canvas.yview)
@@ -955,7 +1063,6 @@ class ArtKitApp:
             "<Configure>",
             lambda e: self._list_canvas.configure(
                 scrollregion=self._list_canvas.bbox("all")))
-        # Rows stretch to the pane's width, so a click anywhere on the row hits.
         self._list_canvas.bind(
             "<Configure>",
             lambda e: self._list_canvas.itemconfigure(self._list_window, width=e.width))
@@ -964,6 +1071,26 @@ class ArtKitApp:
             widget.bind("<Button-4>", lambda e: self._list_canvas.yview_scroll(-1, "units"))
             widget.bind("<Button-5>", lambda e: self._list_canvas.yview_scroll(1, "units"))
         self._rebuild_list()
+        if self._library_collapsed:
+            self._apply_library_collapsed()
+
+    def toggle_library(self):
+        self.set_library_collapsed(not self._library_collapsed)
+
+    def set_library_collapsed(self, collapsed):
+        self._library_collapsed = bool(collapsed)
+        self.settings.library_collapsed = self._library_collapsed
+        self._apply_library_collapsed()
+
+    def _apply_library_collapsed(self):
+        if not hasattr(self, "_library_body"):
+            return
+        if self._library_collapsed:
+            self._library_body.pack_forget()
+            self._library_outer.configure(width=LIBRARY_RAIL)
+        else:
+            self._library_body.pack(side="left", fill="both", expand=True)
+            self._library_outer.configure(width=LIBRARY_W)
 
     def _on_list_wheel(self, event):
         step = -1 if event.delta > 0 else 1
@@ -1017,9 +1144,9 @@ class ArtKitApp:
         f = self._label_filter
         total = len(self.library.drawings)
         if f is None:
-            text = f"ALL  \u00b7  {total}"
+            text = f"{t('all')}  \u00b7  {total}"
         elif f == "":
-            text = f"NO LABEL  \u00b7  {len(self.visible_drawings())}"
+            text = f"{t('no_label')}  \u00b7  {len(self.visible_drawings())}"
         else:
             text = f"{f.upper()}  \u00b7  {len(self.visible_drawings())}"
         btn.configure(text=f"\u25be  {text}")
@@ -1111,16 +1238,29 @@ class ArtKitApp:
         frame.bind("<Configure>", lambda e: scroller.configure(scrollregion=scroller.bbox("all")))
         scroller.bind("<Configure>", lambda e: scroller.itemconfigure(window, width=e.width))
         self._tools_scroller = scroller
+        # Pack from the window bottom up so UPDATE/HELP sit on the bottom
+        # edge and grid lines sit immediately above them (#v2.7.0, item 2).
         foot = theme.frame(bottom)
-        foot.pack(fill="x")
+        foot.pack(side="bottom", fill="x")
         self._size_label = theme.label(foot, "", fg=theme.ON_SURFACE, cursor="hand2",
                                        font=theme.FONT_BOLD)
         self._size_label.pack(side="left")
         self._size_label.bind("<Button-1>", lambda e: self._set_size(self._selected))
-        theme.label(foot, "  click to resize", dim=True).pack(side="left")
-        theme.button(foot, "HELP", self.toggle_help, padx=10).pack(side="right")
-        self._update_button = theme.button(foot, "UPDATE", self.check_for_update, padx=8)
+        self._help_button = theme.button(foot, t("help"), self.toggle_help, padx=10)
+        self._help_button.pack(side="right")
+        self._update_button = theme.button(foot, t("update"), self.check_for_update, padx=8)
         self._update_button.pack(side="right", padx=(0, 4))
+        self._lang_button = theme.button(foot, t("language"), self._post_language_menu, padx=6)
+        self._lang_button.pack(side="right", padx=(0, 4))
+
+        lines_row = theme.frame(bottom)
+        lines_row.pack(side="bottom", fill="x", pady=(0, 6))
+        self._grid_buttons = {
+            True: theme.button(lines_row, t("with_grid"), lambda: self.set_show_grid(True), padx=4),
+            False: theme.button(lines_row, t("without_grid"), lambda: self.set_show_grid(False), padx=4),
+        }
+        self._grid_buttons[True].pack(side="left", expand=True, fill="x")
+        self._grid_buttons[False].pack(side="left", expand=True, fill="x", padx=(2, 0))
 
         previews = theme.frame(bottom)
         previews.pack(fill="x", pady=(0, 6))
@@ -1138,7 +1278,7 @@ class ArtKitApp:
         # --- top block
         save_row = theme.frame(frame)
         save_row.pack(fill="x", pady=(PAD, 2))
-        self._save_button = theme.button(save_row, "SAVE", self.save, bg=theme.WORK,
+        self._save_button = theme.button(save_row, t("save"), self.save, bg=theme.WORK,
                                          fg=theme.ON_ACCENT, activebackground=theme.ACCENT,
                                          activeforeground=theme.ON_ACCENT)
         self._save_button.pack(side="left", fill="x", expand=True)
@@ -1148,30 +1288,36 @@ class ArtKitApp:
         tool_row = theme.frame(frame)
         tool_row.pack(fill="x", pady=2)
         self._tool_buttons = {
-            "draw": theme.button(tool_row, "DRAW", lambda: self.set_tool("draw")),
-            "erase": theme.button(tool_row, "ERASE", lambda: self.set_tool("erase")),
-            "fill": theme.button(tool_row, "FILL", lambda: self.set_tool("fill")),
-            "select": theme.button(tool_row, "SELECT", lambda: self.set_tool("select")),
+            "draw": theme.button(tool_row, t("draw"), lambda: self.set_tool("draw")),
+            "erase": theme.button(tool_row, t("erase"), lambda: self.set_tool("erase")),
+            "fill": theme.button(tool_row, t("fill"), lambda: self.set_tool("fill")),
+            "select": theme.button(tool_row, t("select"), lambda: self.set_tool("select")),
         }
         for i, btn in enumerate(self._tool_buttons.values()):
             btn.pack(side="left", expand=True, fill="x", padx=(0 if i == 0 else 2, 0))
 
         undo_row = theme.frame(frame)
         undo_row.pack(fill="x", pady=2)
-        theme.button(undo_row, "UNDO", self.undo).pack(side="left", expand=True, fill="x")
-        theme.button(undo_row, "REDO", self.redo).pack(side="left", expand=True, fill="x", padx=(2, 0))
+        self._undo_button = theme.button(undo_row, t("undo"), self.undo)
+        self._undo_button.pack(side="left", expand=True, fill="x")
+        self._redo_button = theme.button(undo_row, t("redo"), self.redo)
+        self._redo_button.pack(side="left", expand=True, fill="x", padx=(2, 0))
 
         # Eraser footprint (#v2.6.0, item 8)
         eraser_row = theme.frame(frame)
         eraser_row.pack(fill="x", pady=2)
-        theme.label(eraser_row, "Eraser", dim=True).pack(side="left")
+        self._eraser_label = theme.label(eraser_row, t("eraser"), dim=True)
+        self._eraser_label.pack(side="left")
         self._eraser_w = self._spinbox(eraser_row, 1, MAX_SIZE, self._on_eraser_size)
         self._eraser_h = self._spinbox(eraser_row, 1, MAX_SIZE, self._on_eraser_size)
-        theme.label(eraser_row, "cells", dim=True).pack(side="right", padx=(4, 0))
+        self._eraser_cells_label = theme.label(eraser_row, t("cells"), dim=True)
+        self._eraser_cells_label.pack(side="right", padx=(4, 0))
         self._eraser_h.pack(side="right", ipady=2)
         theme.label(eraser_row, "\u00d7", dim=True).pack(side="right", padx=3)
         self._eraser_w.pack(side="right", ipady=2)
-        theme.label(eraser_row, "W \u00d7 H", dim=True).pack(side="right", padx=(0, 6))
+        self._eraser_wh_label = theme.label(eraser_row, t("wxh"), dim=True)
+        self._eraser_wh_label.pack(side="right", padx=(0, 6))
+        theme.separator(frame, "horizontal").pack(fill="x", pady=(6, 2))
 
         # Grid colours (#v2.6.0, item 7): the two checkerboard tones. Type a
         # code, or click the swatch button for the system colour picker.
@@ -1231,17 +1377,6 @@ class ArtKitApp:
 
         self._build_picker(frame)
         self._build_symmetry_block(frame)
-
-        # Show the cell lines or not (#v2.6.0, item 2), under Symmetry as asked.
-        theme.label(frame, "Grid lines", dim=True).pack(pady=(PAD, 0), anchor="w")
-        lines_row = theme.frame(frame)
-        lines_row.pack(fill="x", pady=(2, PAD))
-        self._grid_buttons = {
-            True: theme.button(lines_row, "WITH GRID", lambda: self.set_show_grid(True), padx=4),
-            False: theme.button(lines_row, "WITHOUT GRID", lambda: self.set_show_grid(False), padx=4),
-        }
-        self._grid_buttons[True].pack(side="left", expand=True, fill="x")
-        self._grid_buttons[False].pack(side="left", expand=True, fill="x", padx=(2, 0))
 
         self._bind_tools_wheel(frame)
         self._refresh_tool_buttons()
@@ -1334,13 +1469,13 @@ class ArtKitApp:
                   somewhere new.
         STICK   — every click paints `length` cells in the bar's direction.
         """
-        theme.label(frame, "Symmetry", dim=True).pack(pady=(PAD, 0), anchor="w")
+        theme.label(frame, t("symmetry"), dim=True).pack(pady=(PAD, 0), anchor="w")
         modes = theme.frame(frame)
         modes.pack(fill="x", pady=2)
         self._sym_mode_buttons = {}
-        for i, (mode, text) in enumerate(((symmetry.OFF, "OFF"), (symmetry.MIRROR, "MIRROR"),
-                                          (symmetry.STICK, "STICK"))):
-            btn = theme.button(modes, text, lambda m=mode: self.set_symmetry_mode(m), padx=4)
+        for i, (mode, key) in enumerate(((symmetry.OFF, "off"), (symmetry.MIRROR, "mirror"),
+                                          (symmetry.STICK, "stick"))):
+            btn = theme.button(modes, t(key), lambda m=mode: self.set_symmetry_mode(m), padx=4)
             btn.pack(side="left", expand=True, fill="x", padx=(0 if i == 0 else 2, 0))
             self._sym_mode_buttons[mode] = btn
 
@@ -1349,7 +1484,8 @@ class ArtKitApp:
         self._sym_orient_button = theme.button(
             shape, "", self._toggle_symmetry_orientation, padx=5)
         self._sym_orient_button.pack(side="left", expand=True, fill="x")
-        theme.label(shape, "length", dim=True).pack(side="left", padx=(6, 2))
+        self._sym_length_label = theme.label(shape, t("length"), dim=True)
+        self._sym_length_label.pack(side="left", padx=(6, 2))
         self._sym_length_var = tk.StringVar(value=str(self._sym_length))
         self._sym_length_spin = tk.Spinbox(
             shape, from_=symmetry.MIN_LENGTH, to=symmetry.MAX_LENGTH, width=3,
@@ -1360,7 +1496,7 @@ class ArtKitApp:
         self._sym_length_spin.pack(side="left", ipady=2)
         self._sym_length_spin.bind("<Return>", self._on_symmetry_length)
         self._sym_length_spin.bind("<FocusOut>", self._on_symmetry_length)
-        self._sym_place_button = theme.button(shape, "PLACE BAR", self.arm_symmetry_placement, padx=5)
+        self._sym_place_button = theme.button(shape, t("place_bar"), self.arm_symmetry_placement, padx=5)
         self._sym_place_button.pack(side="left", padx=(2, 0))
 
         self._sym_hint = theme.label(frame, "", dim=True, anchor="w", wraplength=INNER_W,
@@ -1391,24 +1527,20 @@ class ArtKitApp:
         self._sym_orient_button.configure(text="\u2502 90\u00b0" if vertical else "\u2500 180\u00b0")
         if self._sym_length_var.get() != str(self._sym_length):
             self._sym_length_var.set(str(self._sym_length))
-        mirror = self.symmetry_mode == symmetry.MIRROR
-        self._sym_place_button.configure(state="normal" if mirror else "disabled",
-                                         fg=theme.ON_SURFACE if mirror else theme.ON_DIM)
-        theme.set_pressed(self._sym_place_button, mirror and self._placing_bar)
+        lined = self.symmetry_mode in (symmetry.MIRROR, symmetry.STICK)
+        self._sym_place_button.configure(state="normal" if lined else "disabled",
+                                         fg=theme.ON_SURFACE if lined else theme.ON_DIM)
+        theme.set_pressed(self._sym_place_button, lined and self._placing_bar)
         if self.symmetry_mode == symmetry.OFF:
             self._sym_hint.configure(text="", fg=theme.ON_DIM)
         elif self.symmetry_mode == symmetry.STICK:
-            self._sym_hint.configure(
-                text=f"each click paints {self._sym_length} cells "
-                     f"{'downward' if vertical else 'to the right'}", fg=theme.ON_DIM)
+            axis = t("stick_axis_rows") if vertical else t("stick_axis_cols")
+            self._sym_hint.configure(text=t("stick_hint", n=self._sym_length, axis=axis),
+                                     fg=theme.ON_DIM)
         elif self._placing_bar:
-            self._sym_hint.configure(text="\u25b8 click the canvas where the bar should stand",
-                                     fg=theme.ACCENT)
+            self._sym_hint.configure(text=t("mirror_place"), fg=theme.ACCENT)
         else:
-            self._sym_hint.configure(
-                text=f"{'standing' if vertical else 'lying'} bar: painting along it is mirrored "
-                     f"\u00b7 drag it to move, drag an end to resize",
-                fg=theme.ON_DIM)
+            self._sym_hint.configure(text=t("mirror_hint"), fg=theme.ON_DIM)
 
     def _build_picker(self, frame):
         """The full colour panel, embedded \u2014 a hue strip over a shade square,
@@ -1521,11 +1653,45 @@ class ArtKitApp:
 
     def _on_press(self, event):
         self.canvas.focus_set()  # take focus back from the hex entry
+        if self._hit_zoom_handle(event):
+            self._zoom_drag = self.zoom_level
+            return
         self.on_canvas_press(*self._grid_at(event))
 
     def _on_drag(self, event):
+        if self._zoom_drag is not None:
+            self._drag_zoom(event)
+            return
         self._autoscroll(event)
         self.on_canvas_drag(*self._grid_at(event))
+
+    def _on_release(self, event):
+        if self._zoom_drag is not None:
+            start = self._zoom_drag
+            self._zoom_drag = None
+            if self.zoom_level != start:
+                self._view_undo.append(start)
+            return
+        self.on_canvas_release()
+
+    def _hit_zoom_handle(self, event):
+        if self.history is None:
+            return False
+        d = self.history.current
+        z = self.zoom_level
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        hx, hy = d.width * z, d.height * z
+        return (hx - ZOOM_HANDLE <= x <= hx + ZOOM_HANDLE
+                and hy - ZOOM_HANDLE <= y <= hy + ZOOM_HANDLE)
+
+    def _drag_zoom(self, event):
+        d = self.history.current
+        x, y = self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+        z = int(round(min(x / max(1, d.width), y / max(1, d.height))))
+        z = max(MIN_ZOOM, min(MAX_ZOOM, z))
+        if z != self.zoom_level:
+            self.zoom_level = z
+            self._draw_main()
 
     def _autoscroll(self, event):
         """Dragging against the edge of the visible area scrolls the canvas
@@ -1542,9 +1708,6 @@ class ArtKitApp:
             self.canvas.yview_scroll(-1, "units")
         elif event.y > h - AUTOSCROLL_MARGIN:
             self.canvas.yview_scroll(1, "units")
-
-    def _on_release(self, _event):
-        self.on_canvas_release()
 
     def _on_pick(self, event):
         self.on_canvas_pick(*self._grid_at(event))
@@ -1570,9 +1733,6 @@ class ArtKitApp:
         if self._placing_bar:
             ghost = symmetry.Bar(self._sym_orientation, self._sym_length, col, row)
             self._draw_bar(ghost, tag="ghost", colour=theme.ON_DIM)
-        elif self.symmetry_mode == symmetry.STICK and not self._painting and self.tool != "select":
-            # the run this click would paint, so the artist can line it up
-            self._ghost_cells(symmetry.stick(self._sym_orientation, self._sym_length, col, row), z)
         elif self.tool == "erase" and self.eraser_size != (1, 1) and not self._painting:
             self._ghost_cells(self._eraser_cells(col, row), z)
         if self.floating is not None and self._in_floating(col, row):
@@ -1587,6 +1747,9 @@ class ArtKitApp:
             return
         if self.tool == "select" and self.selection is not None and self._in_selection(col, row):
             self.canvas.configure(cursor="fleur")
+            return
+        if self._hit_zoom_handle(event):
+            self.canvas.configure(cursor="bottom_right_corner")
             return
         self.canvas.configure(cursor="")
 
@@ -1605,17 +1768,17 @@ class ArtKitApp:
             label.configure(text="")
             return
         d = self.history.current
-        parts = [f"pixels {d.count()}"]
+        parts = [t("empty_pixels", n=d.empty_count()), t("pixels", n=d.count())]
         if self.selection is not None:
             c0, r0, c1, r1 = self.selection
             cells, w, h = d.region(c0, r0, c1, r1)
             n = sum(1 for line in cells for c in line if c is not None)
-            parts.append(f"selection {w}\u00d7{h}: {n}")
+            parts.append(t("selection", w=w, h=h, n=n))
         elif self._hover_cell is not None:
             col, row = self._hover_cell
             if d._inside(col, row):
-                parts.append(f"row {row}: {d.row_count(row)}")
-                parts.append(f"col {col}: {d.col_count(col)}")
+                parts.append(t("row_count", row=row, n=d.row_count(row)))
+                parts.append(t("col_count", col=col, n=d.col_count(col)))
         label.configure(text=" \u00b7 ".join(parts))
 
     def _refresh_cursor_label(self):
@@ -1728,19 +1891,23 @@ class ArtKitApp:
                          font=theme.FONT)
 
         menu = tk.Menu(row, tearoff=False)
-        menu.add_command(label="Duplicate", command=lambda: self._duplicate(drawing))
-        menu.add_command(label="Export PNG\u2026", command=lambda: self._export_png(drawing))
-        menu.add_command(label="Export PNG with grid\u2026",
+        menu.add_command(label=t("duplicate"), command=lambda: self._duplicate(drawing))
+        menu.add_command(label=t("export_png"), command=lambda: self._export_png(drawing))
+        menu.add_command(label=t("export_png_grid"),
                          command=lambda: self._export_png(drawing, grid=True))
-        menu.add_command(label="Export JPG\u2026", command=lambda: self._export_jpg(drawing))
-        menu.add_command(label="Export engine sprite\u2026",
+        menu.add_command(label=t("export_svg"), command=lambda: self._export_svg(drawing))
+        menu.add_command(label=t("export_svg_grid"),
+                         command=lambda: self._export_svg(drawing, grid=True))
+        menu.add_command(label=t("export_jpg"), command=lambda: self._export_jpg(drawing))
+        menu.add_command(label=t("export_json"), command=lambda: self._export_json(drawing))
+        menu.add_command(label=t("export_engine"),
                          command=lambda: self._export_engine_sprite(drawing))
         menu.add_separator()
-        menu.add_command(label="Rename\u2026", command=lambda: self._rename(drawing))
-        menu.add_command(label="Label\u2026", command=lambda: self._label_dialog(drawing))
-        menu.add_command(label="Size\u2026", command=lambda: self._set_size(drawing))
+        menu.add_command(label=t("rename"), command=lambda: self._rename(drawing))
+        menu.add_command(label=t("label"), command=lambda: self._label_dialog(drawing))
+        menu.add_command(label=t("size"), command=lambda: self._set_size(drawing))
         menu.add_separator()
-        menu.add_command(label="Delete", command=lambda: self._delete(drawing))
+        menu.add_command(label=t("delete"), command=lambda: self._delete(drawing))
         menu_btn = theme.button(row, "\u22ee", None, bg=bg, activebackground=theme.PANEL_HI,
                                 padx=6, pady=2)
         menu_btn.configure(command=lambda: menu.tk_popup(
@@ -1951,6 +2118,38 @@ class ArtKitApp:
         except engine_io.ExportRefused as exc:
             messagebox.showerror("Pixel Pomo Art Kit", str(exc))
 
+    def _export_svg(self, drawing, grid=False):
+        """Vector export: one rect per cell, sharp at any zoom (#v2.7.0)."""
+        path = filedialog.asksaveasfilename(
+            parent=self.root, title=t("export_svg_grid") if grid else t("export_svg"),
+            defaultextension=".svg", initialfile=f"{drawing.name}.svg",
+            filetypes=[("SVG vector", "*.svg")])
+        if not path:
+            return
+        try:
+            engine_io.export_svg(drawing, path, grid=self.grid_line_colour() if grid else None)
+        except (engine_io.ExportRefused, OSError) as exc:
+            messagebox.showerror("Pixel Pomo Art Kit", str(exc))
+            return
+        self._set_status(f"exported {Path(path).name}", flash=True)
+
+    def _export_json(self, drawing):
+        """The kit's own drawing file — this is what the library stores, and
+        what survives an update. Engine sprites are PNG; the game does not
+        read these JSON files (#v2.7.0, item 14)."""
+        path = filedialog.asksaveasfilename(
+            parent=self.root, title=t("export_json"),
+            defaultextension=".json", initialfile=f"{drawing.name}.json",
+            filetypes=[("Pixel Pomo drawing", "*.json")])
+        if not path:
+            return
+        try:
+            store.save(drawing, Path(path))
+        except OSError as exc:
+            messagebox.showerror("Pixel Pomo Art Kit", str(exc))
+            return
+        self._set_status(f"exported {Path(path).name}", flash=True)
+
     def _export_jpg(self, drawing):
         path = filedialog.asksaveasfilename(
             parent=self.root, title="Export JPG", defaultextension=".jpg",
@@ -2005,6 +2204,7 @@ class ArtKitApp:
         bar = self._active_bar()
         if bar is not None:
             self._draw_bar(bar, tag="symmetry", colour=theme.ACCENT)
+        self._draw_zoom_handle(w, h, z)
         self._draw_overlays()
         # one scroll "unit" is one cell, for the edge auto-scroll while dragging
         self.canvas.configure(scrollregion=(0, 0, w * z, h * z),
@@ -2116,18 +2316,24 @@ class ArtKitApp:
             self.canvas.create_line(0, y, wpx, y, fill=colour, tags="grid")
 
     def _draw_bar(self, bar, tag, colour):
-        """The symmetry bar over the grid: a bright outline around the cells
-        it lies on, and its axis through the middle."""
+        """A bright line sitting on a grid edge, between cells (#v2.7.0)."""
         z = self.zoom_level
-        cells = bar.cells()
-        cs = [c for c, _ in cells]
-        rs = [r for _, r in cells]
-        x0, y0 = min(cs) * z, min(rs) * z
-        x1, y1 = (max(cs) + 1) * z, (max(rs) + 1) * z
-        # Just the outline around the bar's cells — the bar IS one cell wide,
-        # and a line through its middle read as a second, thinner bar (#v2.5.0).
-        self.canvas.create_rectangle(x0 + 1, y0 + 1, x1 - 1, y1 - 1, outline=colour,
-                                     width=2, tags=tag)
+        first, last = bar.span()
+        if bar.orientation == symmetry.VERTICAL:
+            x = bar.col * z
+            y0, y1 = first * z, (last + 1) * z
+            self.canvas.create_line(x, y0, x, y1, fill=colour, width=2, tags=tag)
+        else:
+            y = bar.row * z
+            x0, x1 = first * z, (last + 1) * z
+            self.canvas.create_line(x0, y, x1, y, fill=colour, width=2, tags=tag)
+
+    def _draw_zoom_handle(self, w, h, z):
+        """The grab at the drawing's bottom-right corner (#v2.7.0, item 15)."""
+        x, y = w * z, h * z
+        s = 8
+        self.canvas.create_polygon(x, y - s, x, y, x - s, y, fill=theme.ACCENT,
+                                   outline=theme.ON_ACCENT, tags="zoomhandle")
 
     # ---- help (item 15) -------------------------------------------------------
     def toggle_help(self):
@@ -2162,6 +2368,66 @@ class ArtKitApp:
             return
         d = self.history.current
         label.configure(text=f"{d.width} \u00d7 {d.height}")
+
+    def _post_language_menu(self):
+        menu = tk.Menu(self.root, tearoff=False)
+        current = i18n.language()
+        for code in i18n.LANGS:
+            label = i18n.NAMES[code]
+            if code == current:
+                label = f"\u2713  {label}"
+            menu.add_command(label=label, command=lambda c=code: self.set_language(c))
+        btn = self._lang_button
+        menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
+
+    def set_language(self, code):
+        code = i18n.set_language(code)
+        self.settings.language = code
+        self._apply_language()
+
+    def _apply_language(self):
+        """Retext chrome without rebuilding (box sizes stay, fonts shrink)."""
+        font = i18n.font_for
+        pairs = [
+            (getattr(self, "_save_button", None), "save"),
+            (self._tool_buttons.get("draw") if hasattr(self, "_tool_buttons") else None, "draw"),
+            (self._tool_buttons.get("erase") if hasattr(self, "_tool_buttons") else None, "erase"),
+            (self._tool_buttons.get("fill") if hasattr(self, "_tool_buttons") else None, "fill"),
+            (self._tool_buttons.get("select") if hasattr(self, "_tool_buttons") else None, "select"),
+            (getattr(self, "_undo_button", None), "undo"),
+            (getattr(self, "_redo_button", None), "redo"),
+            (getattr(self, "_update_button", None), "update"),
+            (getattr(self, "_help_button", None), "help"),
+            (getattr(self, "_lang_button", None), "language"),
+            (getattr(self, "_new_button", None), "new_drawing"),
+            (getattr(self, "_import_button", None), "import_png"),
+            (self._sym_mode_buttons.get(symmetry.OFF) if hasattr(self, "_sym_mode_buttons") else None, "off"),
+            (self._sym_mode_buttons.get(symmetry.MIRROR) if hasattr(self, "_sym_mode_buttons") else None, "mirror"),
+            (self._sym_mode_buttons.get(symmetry.STICK) if hasattr(self, "_sym_mode_buttons") else None, "stick"),
+            (getattr(self, "_sym_place_button", None), "place_bar"),
+            (self._grid_buttons.get(True) if hasattr(self, "_grid_buttons") else None, "with_grid"),
+            (self._grid_buttons.get(False) if hasattr(self, "_grid_buttons") else None, "without_grid"),
+        ]
+        for btn, key in pairs:
+            if btn is None:
+                continue
+            btn.configure(text=t(key), font=font(key))
+        for label, key in (
+                (getattr(self, "_eraser_label", None), "eraser"),
+                (getattr(self, "_eraser_cells_label", None), "cells"),
+                (getattr(self, "_eraser_wh_label", None), "wxh"),
+                (getattr(self, "_sym_length_label", None), "length"),
+        ):
+            if label is not None:
+                label.configure(text=t(key))
+        self._refresh_filter_button()
+        self._refresh_symmetry_ui()
+        self._refresh_tool_buttons()
+        self._refresh_grid_ui()
+        self._refresh_counter()
+        if self._help is not None:
+            self.toggle_help()
+            self.toggle_help()
 
     def _set_status(self, text, flash=False, error=False):
         status = getattr(self, "_status", None)
@@ -2226,34 +2492,48 @@ class SwatchGrid(tk.Canvas):
 class ColourStrip(tk.Canvas):
     """The colours in the open drawing, left to right, most-used first, each
     with its code and cell count; click one to make it the ink (#v2.6.0,
-    item 2). Sits under the canvas."""
+    item 2). When they overflow, `< >` after the ellipsis pages the rest
+    (#v2.7.0, item 9)."""
 
     SWATCH, GAP, H = 16, 6, 30
+    ARROW_W = 16
 
     def __init__(self, parent, on_pick):
         super().__init__(parent, height=self.H, highlightthickness=0, bg=theme.BG, cursor="hand2")
         self._on_pick = on_pick
-        self._hits = []  # (x0, x1, hexcode)
+        self._hits = []  # (x0, x1, hexcode or "prev"/"next")
         self.bind("<Button-1>", self._click)
         self.bind("<Configure>", lambda e: self._paint())
         self._items = []
+        self._offset = 0
 
     def set_colours(self, items):
         """`items`: [(hexcode, count), ...] in display order."""
         self._items = list(items)
+        if self._offset >= len(self._items):
+            self._offset = 0
         self._paint()
 
     def _paint(self):
         self.delete("all")
         self._hits = []
         width = max(1, self.winfo_width())
+        items = self._items
+        if not items:
+            return
+        offset = max(0, min(self._offset, max(0, len(items) - 1)))
+        self._offset = offset
+        more_before = offset > 0
+        # reserve room for `... < >` if anything is clipped
         x = 0
-        for hexcode, count in self._items:
+        shown = 0
+        last_fit = offset
+        for i in range(offset, len(items)):
+            hexcode, count = items[i]
             text = f"#{hexcode.lower()} \u00b7 {count}"
             approx = self.SWATCH + 4 + 7 * len(text) + self.GAP
-            if x + approx > width:
-                self.create_text(x, self.H // 2, text="\u2026", fill=theme.ON_DIM, anchor="w",
-                                 font=theme.FONT_SMALL)
+            room = width - (self.ARROW_W * 2 + 18 if (more_before or i < len(items) - 1) else 0)
+            if x + approx > room and shown:
                 break
             self.create_rectangle(x, (self.H - self.SWATCH) // 2, x + self.SWATCH,
                                   (self.H + self.SWATCH) // 2, fill=f"#{hexcode.lower()}",
@@ -2263,12 +2543,39 @@ class ColourStrip(tk.Canvas):
             x1 = self.bbox(item)[2]
             self._hits.append((x, x1, hexcode))
             x = x1 + self.GAP
+            shown += 1
+            last_fit = i
+        more_after = last_fit < len(items) - 1
+        if more_before or more_after:
+            self.create_text(x, self.H // 2, text="\u2026", fill=theme.ON_DIM, anchor="w",
+                             font=theme.FONT_SMALL)
+            x += 12
+            prev_x = x
+            self.create_text(x, self.H // 2, text="\u2039", fill=theme.ACCENT if more_before else theme.ON_DIM,
+                             anchor="w", font=theme.FONT_BOLD)
+            self._hits.append((prev_x, prev_x + self.ARROW_W, "prev"))
+            x += self.ARROW_W
+            next_x = x
+            self.create_text(x, self.H // 2, text="\u203a", fill=theme.ACCENT if more_after else theme.ON_DIM,
+                             anchor="w", font=theme.FONT_BOLD)
+            self._hits.append((next_x, next_x + self.ARROW_W, "next"))
 
     def _click(self, event):
-        for x0, x1, hexcode in self._hits:
+        for x0, x1, what in self._hits:
             if x0 <= event.x <= x1:
-                self._on_pick(hexcode)
+                if what == "prev":
+                    self._offset = max(0, self._offset - max(1, self._page_size()))
+                    self._paint()
+                elif what == "next":
+                    self._offset = min(len(self._items) - 1, self._offset + max(1, self._page_size()))
+                    self._paint()
+                else:
+                    self._on_pick(what)
                 return
+
+    def _page_size(self):
+        shown = sum(1 for *_, what in self._hits if what not in ("prev", "next"))
+        return shown or 1
 
 
 class LabelDialog(tk.Toplevel):
@@ -2400,8 +2707,9 @@ HELP_TEXT = [
     ("SAVE", "write the open drawing to disk now (every stroke is also autosaved)"),
     ("DRAW / ERASE / FILL", "paint one square · clear one square · flood the connected area"),
     ("SELECT", "drag a rectangle. Press inside it and drag to move those cells; "
-               "{mod}+C / {mod}+X / {mod}+V copy, cut, paste; Delete clears; Enter drops a floating block, "
-               "arrow keys nudge it; a click outside drops it too"),
+               "{mod}+C copies, then click a cell (even in another drawing) to paste there; "
+               "{mod}+X / {mod}+V cut / floating paste; Delete clears; Enter drops a floating block; "
+               "Esc or clicking SELECT again dismisses the rectangle; FILL with a selection paints its inside"),
     ("UNDO / REDO", "step back / forward, one stroke at a time (a drag, a fill, a paste is one stroke)"),
     ("Eraser W × H", "how many cells the eraser clears at once, centred on the pointer"),
     ("Grid colour 1 / 2", "the two checkerboard tones behind the art — type a code, … opens a colour "
@@ -2411,34 +2719,40 @@ HELP_TEXT = [
     ("Ready colours", "Pixel Pomo's theme tones plus pixel-art staples"),
     ("Colour", "hue strip on top, light/dark square below; click or drag"),
     ("Symmetry: OFF", "plain painting"),
-    ("Symmetry: MIRROR", "a bar stands on the canvas; anything painted along it is mirrored across it. "
-                        "Press ON the bar and drag to move it, or PLACE BAR and click a new spot"),
-    ("Symmetry: STICK", "every click paints `length` cells in one go — to the right (─ 180°) or downward (│ 90°)"),
-    ("  │ 90° / ─ 180°", "the bar's direction: standing or lying"),
-    ("  length", "how many cells the bar covers (MIRROR: centred on the click; STICK: starting at it). "
-                 "Drag either END of the bar to change it on the canvas"),
-    ("WITH / WITHOUT GRID", "show or hide the cell lines over the drawing"),
-    ("Under the canvas", "pixel count (and the row / column under the cursor, or the selection), the "
-                         "colours in the drawing left to right (click one to use it), the cell and colour "
-                         "under the cursor"),
+    ("Symmetry: MIRROR", "a bright line sits BETWEEN pixels; painting along it is mirrored. "
+                        "Drag the line to move it, drag an end to resize, or PLACE BAR and click a new spot"),
+    ("Symmetry: STICK", "the same between-pixel line; placing it copies `length` rows (\u2502 90\u00b0) or columns "
+                        "(\u2500 180\u00b0) across it \u2014 a strip symmetry stamp"),
+    ("  \u2502 90\u00b0 / \u2500 180\u00b0", "the line's direction: standing or lying"),
+    ("  length", "how many rows/columns the line covers. Drag either END to change it on the canvas"),
+    ("WITH / WITHOUT GRID", "show or hide the cell lines over the drawing \u2014 sits just above UPDATE / HELP"),
+    ("LANGUAGE", "English / T\u00fcrk\u00e7e / Polski / Deutsch. Button boxes keep their size; type shrinks if needed"),
+    ("\u2630 (library)", "collapses the drawing list to the rail; click again to expand. Sits above the scrollbar, aligned with ALL"),
+    ("Under the canvas", "empty-pixel count, painted-pixel count, the colours in the drawing "
+                         "(click one to use it; \u2039 \u203a pages overflow), the cell and colour under the cursor"),
     ("1x / squint", "the drawing at real size, and at squint-test distance"),
-    ("W × H", "the drawing's size — click it to resize (one undo step)"),
+    ("W \u00d7 H", "the drawing's size \u2014 click it to resize. Drag the bottom-right corner of the "
+              "drawing to enlarge on-screen pixels; {mod}+Z undoes that zoom"),
     ("UPDATE", "checks GitHub for a newer kit. Windows updates itself (your drawings are untouched, and "
                "backed up first); macOS opens the download page"),
-    ("+ NEW DRAWING", "a blank drawing at a garden size: flower, bush, rock, tree, or custom"),
+    ("+ NEW DRAWING", "a blank drawing at a garden size: flower 16\u00d716, bug 8\u00d78, bush, rock, tree, or custom"),
     ("IMPORT PNG…", "bring in art from Procreate/Aseprite/anything; it is saved into the library at once"),
-    ("▾ ALL (top left)", "filter the library by label"),
-    ("label chip", "left of ⋮ on each row: click to change that drawing's label"),
-    ("⋮", "on a library row: Duplicate, Export PNG (with or without grid) / JPG / engine sprite "
-          "(x16, any size, you name the file), Rename, Label, Size, Delete"),
+    ("▾ ALL (top left)", "filter the library by label (flower / tree / bush / rock / bugs / \u2026)"),
+    ("label chip", "left of \u22ee on each row: click to change that drawing's label"),
+    ("\u22ee", "Duplicate, Export PNG / SVG (vector, sharp at any zoom) / JPG / JSON "
+          "(the kit drawing file \u2014 what the library stores and what survives an update) / "
+          "engine sprite (PNG the garden loads, x16), Rename, Label, Size, Delete"),
+    ("JSON vs PNG", "the library is JSON in your data folder. An update replaces the program only. "
+                    "Export engine sprite writes the PNG the game draws. Export SVG for sharing without "
+                    "pixelation. Export JSON to send a drawing to another kit."),
     ("", None),
     ("KEYBOARD", None),
     ("{mod}+S", "save"),
-    ("{mod}+Z / {mod}+Y", "undo / redo  ({mod}+Shift+Z also redoes)"),
+    ("{mod}+Z / {mod}+Y", "undo / redo  ({mod}+Shift+Z also redoes). Corner-zoom undoes first"),
     ("{mod}+N", "new drawing"),
     ("B / E / F / S", "brush / eraser / fill / select"),
-    ("{mod}+C / X / V", "copy / cut / paste the selection"),
-    ("Enter · Delete · arrows", "drop the floating block · clear the selection · nudge the block"),
+    ("{mod}+C / X / V", "copy / cut / paste \u2014 after copy, click a cell to paste there"),
+    ("Enter \u00b7 Delete \u00b7 Esc \u00b7 arrows", "drop the floating block \u00b7 clear the selection \u00b7 dismiss selection \u00b7 nudge the block"),
     ("M", "symmetry: OFF → MIRROR → STICK"),
     ("+ / −  or mouse wheel", "zoom in / out"),
     ("Right-click on the canvas", "eyedropper: the colour under the cursor becomes the ink"),

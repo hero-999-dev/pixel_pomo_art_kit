@@ -23,6 +23,9 @@ DEFAULTS = {
     "grid": {"c1": "232F28", "c2": "2A3A30"},  # the two checkerboard tones (theme.CHECKER)
     "show_grid": True,                          # the cell lines over the art
     "eraser": {"w": 1, "h": 1},
+    # #v2.7.0
+    "language": "en",
+    "library_collapsed": False,
 }
 
 
@@ -146,6 +149,28 @@ class Settings:
 
     def set_eraser(self, w, h):
         self.data["eraser"] = {"w": max(1, min(64, int(w))), "h": max(1, min(64, int(h)))}
+        self.save()
+
+    # --- #v2.7.0 ---------------------------------------------------------------
+    @property
+    def language(self):
+        value = self.data.get("language", "en")
+        return value if value in ("en", "tr", "pl", "de") else "en"
+
+    @language.setter
+    def language(self, code):
+        code = code if code in ("en", "tr", "pl", "de") else "en"
+        if self.data.get("language") != code:
+            self.data["language"] = code
+            self.save()
+
+    @property
+    def library_collapsed(self):
+        return bool(self.data.get("library_collapsed", False))
+
+    @library_collapsed.setter
+    def library_collapsed(self, value):
+        self.data["library_collapsed"] = bool(value)
         self.save()
 
 

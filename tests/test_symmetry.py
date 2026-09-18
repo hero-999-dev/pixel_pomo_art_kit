@@ -1,7 +1,12 @@
 import unittest
 
 from art_kit import symmetry
+from art_kit.model import Drawing, Palette
 from art_kit.symmetry import Bar, HORIZONTAL, VERTICAL, expand
+
+
+PAL = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C",
+              rim="2E0810", plant_rim="1E5A24")
 
 
 class BarTest(unittest.TestCase):
@@ -18,20 +23,27 @@ class BarTest(unittest.TestCase):
         self.assertEqual(bar.cells(), [(c, 4) for c in range(6, 10)])
         self.assertEqual(bar.angle, 180)
 
-    def test_a_vertical_bar_mirrors_left_to_right_within_its_reach(self):
+    def test_a_vertical_bar_mirrors_across_the_line_between_cells(self):
         bar = Bar(VERTICAL, 5, col=7, row=4)
-        self.assertEqual(bar.mirror(4, 3), (10, 3))
-        self.assertEqual(bar.mirror(10, 6), (4, 6))
+        # the line is the left edge of column 7: 6 <-> 7, 5 <-> 8, 4 <-> 9
+        self.assertEqual(bar.mirror(4, 3), (9, 3))
+        self.assertEqual(bar.mirror(9, 6), (4, 6))
+        self.assertEqual(bar.mirror(6, 4), (7, 4), "neighbours across the line swap")
         self.assertIsNone(bar.mirror(4, 1), "row 1 is above the bar's reach")
         self.assertIsNone(bar.mirror(4, 7), "row 7 is below the bar's reach")
-        self.assertIsNone(bar.mirror(7, 4), "a cell ON the bar has no twin")
 
-    def test_a_horizontal_bar_mirrors_top_to_bottom(self):
+    def test_a_horizontal_bar_mirrors_top_to_bottom_across_the_line(self):
         bar = Bar(HORIZONTAL, 3, col=5, row=8)
-        self.assertEqual(bar.mirror(5, 6), (5, 10))
-        self.assertEqual(bar.mirror(4, 9), (4, 7))
+        self.assertEqual(bar.mirror(5, 6), (5, 9))  # 2*8-1-6 = 9
+        self.assertEqual(bar.mirror(4, 9), (4, 6))
         self.assertIsNone(bar.mirror(3, 6), "column 3 is outside a 3-long bar at 5")
-        self.assertIsNone(bar.mirror(5, 8))
+
+    def test_touches_either_side_of_the_line(self):
+        bar = Bar(VERTICAL, 5, col=7, row=4)
+        self.assertTrue(bar.touches(7, 4))
+        self.assertTrue(bar.touches(6, 4))
+        self.assertFalse(bar.touches(5, 4))
+        self.assertFalse(bar.touches(7, 1))
 
     def test_length_is_clamped_and_orientation_checked(self):
         self.assertEqual(Bar(VERTICAL, 0, 0, 0).length, symmetry.MIN_LENGTH)
@@ -71,12 +83,25 @@ class ExpandTest(unittest.TestCase):
 
     def test_twins_follow_their_originals_and_are_not_duplicated(self):
         bar = Bar(VERTICAL, 5, col=7, row=4)
-        cells = [(6, 4), (7, 4), (8, 4)]  # (8,4) is (6,4)'s twin already
-        self.assertEqual(expand(bar, cells), [(6, 4), (8, 4), (7, 4)])
+        cells = [(6, 4), (7, 4)]  # neighbours across the line
+        self.assertEqual(expand(bar, cells), [(6, 4), (7, 4)])
 
     def test_cells_beyond_the_bar_are_painted_alone(self):
         bar = Bar(VERTICAL, 1, col=7, row=4)  # one cell long: only row 4 mirrors
-        self.assertEqual(expand(bar, [(3, 4), (3, 5)]), [(3, 4), (11, 4), (3, 5)])
+        self.assertEqual(expand(bar, [(3, 4), (3, 5)]), [(3, 4), (10, 4), (3, 5)])
+
+
+class StampAcrossTest(unittest.TestCase):
+    def test_a_vertical_stick_copies_the_length_rows_to_the_other_side(self):
+        d = Drawing.blank(8, 6, PAL)
+        d.paint(1, 2, "m")
+        d.paint(2, 3, "l")
+        bar = Bar(VERTICAL, 3, col=4, row=2)  # span rows 1..3, line between 3 and 4
+        written = symmetry.stamp_across(d, bar)
+        self.assertEqual(d.get(6, 2), "m")  # 2*4-1-1 = 6
+        self.assertEqual(d.get(5, 3), "l")  # 2*4-1-2 = 5
+        self.assertIsNone(d.get(6, 5), "row 5 is outside the 3-long span")
+        self.assertIn((6, 2), written)
 
 
 if __name__ == "__main__":

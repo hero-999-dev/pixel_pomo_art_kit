@@ -75,7 +75,20 @@ class DrawingTest(unittest.TestCase):
         self.assertEqual((d.width, d.height), (2, 2))
         self.assertEqual(d.get(1, 1), "m", "cropping stops before the art")
 
-    def test_copy_does_not_share_rows(self):
+    def test_count_and_empty_count(self):
+        d = Drawing.blank(4, 3, PAL)
+        self.assertEqual(d.count(), 0)
+        self.assertEqual(d.empty_count(), 12)
+        d.paint(0, 0, "m")
+        d.paint(1, 1, "l")
+        self.assertEqual(d.count(), 2)
+        self.assertEqual(d.empty_count(), 10)
+
+    def test_fill_region_paints_the_rectangle(self):
+        d = Drawing.blank(6, 4, PAL)
+        d.fill_region(1, 1, 3, 2, "m")
+        painted = {(c, r) for r in range(4) for c in range(6) if d.get(c, r) == "m"}
+        self.assertEqual(painted, {(1, 1), (2, 1), (3, 1), (1, 2), (2, 2), (3, 2)})
         d = Drawing.blank(4, 3, PAL)
         clone = d.copy()
         clone.paint(0, 0, "d")

@@ -76,9 +76,25 @@ DISPLAY_NAMES = {
     "rock": "Rock",
 }
 
+# The garden's critters (#v2.7.0, item 13): the engine's CRITTERS table, in
+# its order, as `bug` models 0..6. Each is an 8x8 raw-pixel sprite; the game
+# spins it into a facing atlas (`make_atlas`) when it writes `<id>.png`, which
+# is why the kit exports the single base frame under that id and leaves the
+# atlas to the developer.
+BUG_IDS = ["bee", "butterfly", "ladybug", "ladybug_yellow", "butterfly_monarch",
+           "butterfly_blue", "bee_bumble"]
+BUG_NAMES = {
+    "bee": "Bee", "butterfly": "Butterfly", "ladybug": "Ladybug",
+    "ladybug_yellow": "Yellow Ladybug", "butterfly_monarch": "Monarch Butterfly",
+    "butterfly_blue": "Blue Butterfly", "bee_bumble": "Bumblebee",
+}
+BUG = "bug"
+
 
 def display_name(species, model):
     """The label the artist sees for one drawing — never a filename."""
+    if species == BUG:
+        return BUG_NAMES.get(BUG_IDS[model % len(BUG_IDS)], f"Bug {model + 1}")
     base = DISPLAY_NAMES.get(species, species)
     if is_forest(species):
         return f"{base} {model + 1:02d}"
@@ -99,12 +115,49 @@ def is_forest(species):
 
 def default_label(species):
     """The label a seeded drawing starts with (#v2.6.0): 'flower' for every
-    shipped species, the kind itself for a forest prop, nothing otherwise."""
+    shipped species, the kind itself for a forest prop, 'bugs' for a critter,
+    nothing otherwise."""
     if species in FOREST_KINDS:
         return species
     if species in SPECIES:
         return "flower"
+    if species == BUG:
+        return "bugs"
     return ""
+
+
+# Every kind the kit seeds, with the (species, model) pairs each one means.
+# `Library.seed_missing_kinds` walks this so a kind added in a later version
+# (the bugs, #v2.7.0) lands in a library that was seeded before it existed.
+def seed_kinds():
+    kinds = {"flower": [(s, v) for s in SPECIES for v in (0, 1)]}
+    for kind, n in FOREST:
+        kinds[kind] = [(kind, i) for i in range(n)]
+    kinds["bugs"] = [(BUG, i) for i in range(len(BUG_IDS))]
+    return kinds
+
+
+def seeded_count():
+    """How many drawings `import_all` / a fresh library contains."""
+    return sum(len(pairs) for pairs in seed_kinds().values())
+
+
+def import_seed(species, model):
+    """One shipped drawing of any kind."""
+    if species == BUG:
+        return import_bug(model)
+    if is_forest(species):
+        return import_forest_prop(species, model)
+    return import_flower(species, model)
+
+
+def import_bug(index):
+    g = gen_objects()
+    maker = g.CRITTERS[BUG_IDS[index]]
+    grid = maker()
+    cells = [[px if px[3] else None for px in row] for row in grid]
+    return Drawing(name=display_name(BUG, index), species=BUG, model=index, cells=cells,
+                   palette=_forest_palette(), label=default_label(BUG))
 
 
 def _palette_for(species):
@@ -184,7 +237,8 @@ def _forest_palette():
 def import_all():
     flowers = [import_flower(s, v) for s in SPECIES for v in (0, 1)]
     forest = [import_forest_prop(k, i) for k, n in FOREST for i in range(n)]
-    return flowers + forest
+    bugs = [import_bug(i) for i in range(len(BUG_IDS))]
+    return flowers + forest + bugs
 
 
 def render(drawing):
@@ -271,14 +325,56 @@ def export_sprite(drawing, path, scale=16):
     return Path(path)
 
 
-def suggested_sprite_name(drawing):
+def suggested_sprite_name(drawing, ext="png"):
     """A default filename for `export_sprite`: the engine's own name when the
-    drawing is a shipped species/prop, else a slug of the artist's name."""
-    if drawing.species and (is_forest(drawing.species) or drawing.species in SPECIES):
-        return engine_sprite_names(drawing)[0]
+    drawing is a shipped species/prop/bug, else a slug of the artist's name."""
+    if drawing.species and (is_forest(drawing.species) or drawing.species in SPECIES
+                            or drawing.species == BUG):
+        return engine_sprite_names(drawing)[0].rsplit(".", 1)[0] + f".{ext}"
     import re
     slug = re.sub(r"[^a-z0-9_-]+", "_", (drawing.name or "sprite").lower()).strip("_")
-    return f"{slug or 'sprite'}.png"
+    return f"{slug or 'sprite'}.{ext}"
+
+
+def export_svg(drawing, path, cell=16, grid=None):
+    """The drawing as SVG: one `<rect>` per painted cell, `cell` units each,
+    with `shape-rendering="crispEdges"` (#v2.7.0, item 4). Vector, so it
+    stays sharp at any zoom in Illustrator, a browser, a chat preview.
+    `grid` (hex) adds one-unit lines on every cell boundary, border closed."""
+    rendered = render(drawing)
+    h, w = len(rendered), len(rendered[0])
+    W, H = w * cell, h * cell
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+           f'viewBox="0 0 {W} {H}" shape-rendering="crispEdges">']
+    for r, row in enumerate(rendered):
+        c = 0
+        while c < w:
+            px = row[c]
+            if not px or px[3] == 0:
+                c += 1
+                continue
+            # run-length: neighbouring cells of one colour become one rect
+            end = c
+            while end + 1 < w and row[end + 1] == px:
+                end += 1
+            fill = f"#{px[0]:02x}{px[1]:02x}{px[2]:02x}"
+            opacity = "" if px[3] == 255 else f' fill-opacity="{px[3] / 255:.3f}"'
+            out.append(f'<rect x="{c * cell}" y="{r * cell}" width="{(end - c + 1) * cell}" '
+                       f'height="{cell}" fill="{fill}"{opacity}/>')
+            c = end + 1
+    if grid is not None:
+        g = "#" + grid.lstrip("#")
+        lines = []
+        for x in range(0, W + 1, cell):
+            xx = min(x, W - 1)
+            lines.append(f'<rect x="{xx}" y="0" width="1" height="{H}"/>')
+        for y in range(0, H + 1, cell):
+            yy = min(y, H - 1)
+            lines.append(f'<rect x="0" y="{yy}" width="{W}" height="1"/>')
+        out.append(f'<g fill="{g}">' + "".join(lines) + "</g>")
+    out.append("</svg>")
+    Path(path).write_text("\n".join(out), encoding="utf-8")
+    return Path(path)
 
 
 def export_jpg(drawing, path, scale=16, background=(255, 255, 255)):
@@ -302,6 +398,8 @@ def engine_sprite_names(drawing):
     """Basenames export_engine_sprite will write: the model's own sprite, plus
     the bare thumbnail the shop uses when it's model 0. One definition so the
     confirmation dialog and the writer can never name different files."""
+    if drawing.species == BUG:
+        return [f"{BUG_IDS[drawing.model % len(BUG_IDS)]}.png"]
     if is_forest(drawing.species):
         # tree_07.png — the engine loads forest props by their own filename,
         # with no `flower_` prefix and no bare thumbnail (#v17's "only shadows"
@@ -317,7 +415,11 @@ def export_engine_sprite(drawing, out_dir):
     """Write the sprite(s) the garden loads: ×16, RGBA, engine naming."""
     if not drawing.species:
         raise ExportRefused("give the drawing a species before exporting it")
-    if is_forest(drawing.species):
+    if drawing.species == BUG:
+        if (drawing.width, drawing.height) != (8, 8):
+            raise ExportRefused(
+                f"a bug is an 8x8 frame, this drawing is {drawing.width}x{drawing.height}")
+    elif is_forest(drawing.species):
         # A tree's canvas size IS its size in the garden: the engine reads the
         # tile count from its own table and the sprite is generated at 16px per
         # tile, so an off-size grid would render at the wrong pixel density.

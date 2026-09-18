@@ -3,7 +3,7 @@
 The release tag is `v` + this string. `updater.py` compares it with the
 latest GitHub release; the PyInstaller spec reads it for the .app's plist.
 """
-VERSION = "2.6.0"
+VERSION = "2.7.0"
 REPO = "hero-999-dev/pixel_pomo_art_kit"
 
 

@@ -11,7 +11,7 @@ import pathlib
 # Everything the app seeds: two models per flower, plus the forest props the
 # engine loads (#v34.8). Derived, so adding a species or a tree moves it
 # automatically instead of leaving a stale literal behind.
-SEEDED = len(engine_io.SPECIES) * 2 + sum(n for _, n in engine_io.FOREST)
+SEEDED = engine_io.seeded_count()
 
 
 # The game checkout is found RELATIVE to this file (both live under one
@@ -320,6 +320,7 @@ class ArtistExportsTest(unittest.TestCase):
         self.assertEqual(engine_io.default_label("rock"), "rock")
         self.assertEqual(engine_io.default_label(""), "")
         self.assertEqual(engine_io.default_label("whatever"), "")
+        self.assertEqual(engine_io.default_label("bug"), "bugs")
         self.assertTrue(all(d.label for d in engine_io.import_all()), "everything seeded is labelled")
 
 
@@ -402,4 +403,26 @@ class ForestPropsAreEditable(unittest.TestCase):
         rendered = engine_io.render(d)
         original = engine_io.gen_objects()._bush_variant(2)
         self.assertEqual(rendered, original)
+
+
+class BugsAndSvgTest(unittest.TestCase):
+    def test_every_critter_imports_as_an_8x8_bugs_labelled_drawing(self):
+        bugs = [d for d in engine_io.import_all() if d.species == engine_io.BUG]
+        self.assertEqual(len(bugs), len(engine_io.BUG_IDS))
+        for i, d in enumerate(bugs):
+            self.assertEqual((d.width, d.height), (8, 8))
+            self.assertEqual(d.label, "bugs")
+            self.assertEqual(engine_io.engine_sprite_names(d), [f"{engine_io.BUG_IDS[i]}.png"])
+
+    def test_svg_export_is_vector_rects_not_a_bitmap(self):
+        d = Drawing.blank(4, 2, engine_io._forest_palette())
+        d.paint(0, 0, (200, 10, 10, 255))
+        d.paint(1, 0, (200, 10, 10, 255))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = engine_io.export_svg(d, Path(tmp) / "a.svg", cell=10)
+            text = path.read_text(encoding="utf-8")
+        self.assertIn('shape-rendering="crispEdges"', text)
+        self.assertIn("<rect", text)
+        self.assertNotIn("<image", text)
+        self.assertIn('width="20"', text)  # two neighbouring cells of one colour merge
 

@@ -1,24 +1,22 @@
-"""The symmetry bar (#v2.4.0, item 14). Pure geometry, no widgets.
+"""The symmetry line (#v2.4.0, item 14; between-pixel lines #v2.7.0, item 12).
 
-The artist places a short bar on the grid — vertical (90°) or horizontal
-(180°), `length` cells long, centred where they clicked. While it is there,
-every cell painted within the bar's reach is mirrored across it:
+The artist places a short *line between cells* — vertical (90°) or horizontal
+(180°), `length` cells long. The line sits on a grid edge, never covering a
+cell, so it cannot be mistaken for a SELECT rectangle.
 
-* a **vertical** bar standing in column `c` mirrors column `c - k` onto
-  `c + k`, for cells whose ROW lies within the bar's length;
-* a **horizontal** bar lying in row `r` mirrors row `r - k` onto `r + k`, for
-  cells whose COLUMN lies within the bar's length.
+* a **vertical** line on the left edge of column `c` mirrors column `c - 1 - k`
+  onto column `c + k` (neighbours across the line swap), for rows within the
+  line's length;
+* a **horizontal** line on the top edge of row `r` does the same for columns.
 
-A cell on the bar itself has no twin. A cell outside the bar's length is
-painted alone, so the bar can sit on one petal without ghosting the stem.
-Sitting the axis ON a cell (rather than between two) is what makes "5 cells
-long, centred on the click" mean the same thing for odd and even lengths,
-and it is how an artist reads a bar drawn over the grid anyway.
+MIRROR paints both sides live. STICK uses the same line, and when it is
+placed it copies the `length` rows (vertical) or columns (horizontal) from
+one side onto the other — a strip symmetry stamp.
 """
 from dataclasses import dataclass
 
-VERTICAL = "vertical"      # the 90° bar: mirrors left <-> right
-HORIZONTAL = "horizontal"  # the 180° bar: mirrors top <-> bottom
+VERTICAL = "vertical"      # the 90° line: mirrors left <-> right
+HORIZONTAL = "horizontal"  # the 180° line: mirrors top <-> bottom
 ORIENTATIONS = (VERTICAL, HORIZONTAL)
 
 ANGLE = {VERTICAL: 90, HORIZONTAL: 180}
@@ -29,8 +27,9 @@ MIN_LENGTH, MAX_LENGTH = 1, 64
 class Bar:
     orientation: str
     length: int
-    col: int  # the cell the bar is centred on
-    row: int
+    col: int  # vertical: the line is the LEFT edge of this column
+    row: int  # horizontal: the line is the TOP edge of this row
+              # the other coordinate is the centre of the length span
 
     def __post_init__(self):
         if self.orientation not in ORIENTATIONS:
@@ -42,34 +41,74 @@ class Bar:
         return ANGLE[self.orientation]
 
     def span(self):
-        """(first, last) index along the bar, inclusive: the rows a vertical
-        bar covers, or the columns a horizontal one covers."""
+        """(first, last) index along the line, inclusive: the rows a vertical
+        line covers, or the columns a horizontal one covers."""
         centre = self.row if self.orientation == VERTICAL else self.col
         half = (self.length - 1) // 2
         first = centre - half
         return first, first + self.length - 1
 
     def cells(self):
-        """Every grid cell the bar lies on — what the canvas draws."""
+        """The length-run of cells on the positive side of the line (right of
+        a vertical line, below a horizontal one) — used to centre and resize."""
         first, last = self.span()
         if self.orientation == VERTICAL:
             return [(self.col, r) for r in range(first, last + 1)]
         return [(c, self.row) for c in range(first, last + 1)]
 
-    def mirror(self, col, row):
-        """The twin of (col, row), or None if the cell is on the bar or
-        outside its reach."""
+    def touches(self, col, row):
+        """True if (col, row) is adjacent to the line within its length —
+        either side, so the line can be grabbed from both neighbouring cells."""
         first, last = self.span()
         if self.orientation == VERTICAL:
-            if not (first <= row <= last) or col == self.col:
+            if not (first <= row <= last):
+                return False
+            return col == self.col or col == self.col - 1
+        if not (first <= col <= last):
+            return False
+        return row == self.row or row == self.row - 1
+
+    def mirror(self, col, row):
+        """The twin of (col, row) across the between-pixel line, or None if
+        the cell is outside the line's reach."""
+        first, last = self.span()
+        if self.orientation == VERTICAL:
+            if not (first <= row <= last):
                 return None
-            return (2 * self.col - col, row)
-        if not (first <= col <= last) or row == self.row:
+            return (2 * self.col - 1 - col, row)
+        if not (first <= col <= last):
             return None
-        return (col, 2 * self.row - row)
+        return (col, 2 * self.row - 1 - row)
 
     def moved_to(self, col, row):
         return Bar(self.orientation, self.length, col, row)
+
+
+def stamp_across(drawing, bar):
+    """Copy the `length` span across `bar`: left → right for a vertical line,
+    top → bottom for a horizontal one. Empty cells wipe their twins, so the
+    strip on the far side becomes the true mirror. Returns the cells written."""
+    first, last = bar.span()
+    written = []
+    if bar.orientation == VERTICAL:
+        for r in range(first, last + 1):
+            for c in range(bar.col):
+                twin = bar.mirror(c, r)
+                if twin is None:
+                    continue
+                tc, tr = twin
+                drawing.paint(tc, tr, drawing.get(c, r))
+                written.append((tc, tr))
+    else:
+        for c in range(first, last + 1):
+            for r in range(bar.row):
+                twin = bar.mirror(c, r)
+                if twin is None:
+                    continue
+                tc, tr = twin
+                drawing.paint(tc, tr, drawing.get(c, r))
+                written.append((tc, tr))
+    return written
 
 
 OFF, MIRROR, STICK = "off", "mirror", "stick"
@@ -77,12 +116,9 @@ MODES = (OFF, MIRROR, STICK)
 
 
 def stick(orientation, length, col, row):
-    """The STICK mode (#v2.5.0): one click paints a whole run.
-
-    `length` cells starting AT the clicked cell and running to the right
-    (horizontal) or downward (vertical) — "there are five purple cells over
-    there; click in line with them and five purple cells appear". The
-    clicked cell comes first, so a stick of length 1 is an ordinary click."""
+    """Kept for older tests: a run of `length` cells from the click. STICK
+    in the editor is a between-pixel strip-mirror now (#v2.7.0); this helper
+    is the previous paint-a-run geometry."""
     if orientation not in ORIENTATIONS:
         raise ValueError(f"orientation must be one of {ORIENTATIONS}, got {orientation!r}")
     length = max(MIN_LENGTH, min(MAX_LENGTH, int(length)))

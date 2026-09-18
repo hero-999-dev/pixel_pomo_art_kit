@@ -44,6 +44,7 @@ def main():
     library = store.Library(data / "library")
     skipped = library.load_all()
     library.seed_from_engine()
+    library.seed_missing_kinds()  # bugs into a library that predates them (#v2.7.0)
     settings = Settings(data / "settings.json")
     root = tk.Tk()
     root.geometry("1280x820")

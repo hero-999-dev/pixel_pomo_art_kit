@@ -206,3 +206,17 @@ class Library:
         for drawing in engine_io.import_all():
             self.add(drawing)
         return self.drawings
+
+    def seed_missing_kinds(self):
+        """Add shipped kinds this library does not have yet (#v2.7.0): a
+        library seeded before the bugs existed still gets the seven critters
+        on the next launch, without touching anything already drawn."""
+        from art_kit import engine_io
+        have = {(d.species, d.model) for d in self.drawings}
+        added = []
+        for _kind, pairs in engine_io.seed_kinds().items():
+            for species, model in pairs:
+                if (species, model) in have:
+                    continue
+                added.append(self.add(engine_io.import_seed(species, model)))
+        return added

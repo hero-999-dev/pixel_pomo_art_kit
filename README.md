@@ -51,6 +51,12 @@ reopens; the previous .exe is kept as `PixelPomoArtKit.old.exe` in case you want
 it back. On **macOS** it opens the download page — replace the .app as in the
 setup steps; your drawings are in Documents and untouched.
 
+**JSON vs PNG.** The library is JSON (`library/*.json`). That is the editable
+drawing and it is what survives an update. **Export engine sprite** writes the
+PNG the garden actually loads. **Export SVG** is the share format — vector
+rects, so zooming in Illustrator or a chat preview does not pixelate. **Export
+JSON** sends a drawing to another kit.
+
 ### macOS, step by step
 
 **Pick the right download first.**  → *About This Mac*: "Chip: Apple M…" wants

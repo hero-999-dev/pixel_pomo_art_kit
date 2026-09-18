@@ -132,9 +132,25 @@ def _handoff_script(exe_path, new_exe, pid):
     one into place, relaunch, and remove this script. Plain cmd, so it runs
     on any Windows with nothing installed."""
     old = exe_path.with_name("PixelPomoArtKit.old.exe")
+    folder = exe_path.parent
     return "\r\n".join([
         "@echo off",
-        "setlocal",
+        # No setlocal: env wipes have to reach `start`. The PyInstaller
+        # bootloader tells its child where it unpacked itself through
+        # `_MEIPASS*` / `_PYI_*`. This script is a grandchild of the OLD
+        # kit, so it inherits them — and the NEW kit, started from here,
+        # would trust them, skip unpacking, and look for python3xx.dll in a
+        # _MEI folder the old kit deleted on exit: "Failed to load Python
+        # DLL ... The specified module could not be found" (#v2.7.0).
+        # Wipe every one of them, including names we do not know yet.
+        "for /f \"tokens=1 delims==\" %%V in ('set _MEI 2^>NUL') do set \"%%V=\"",
+        "for /f \"tokens=1 delims==\" %%V in ('set _PYI 2^>NUL') do set \"%%V=\"",
+        'set "_MEIPASS="',
+        'set "_MEIPASS2="',
+        'set "_PYI_APPLICATION_HOME_DIR="',
+        'set "_PYI_ARCHIVE_FILE="',
+        'set "_PYI_PARENT_PROCESS_LEVEL="',
+        'set "_PYI_SPLASH_IPC="',
         f"set PID={pid}",
         ":wait",
         'tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL',
@@ -142,10 +158,15 @@ def _handoff_script(exe_path, new_exe, pid):
         "  timeout /t 1 /nobreak >NUL",
         "  goto wait",
         ")",
+        # the old kit deletes its _MEI folder on the way out; wait until that
+        # finishes, or the new unpack can collide with a half-removed tree
+        "timeout /t 2 /nobreak >NUL",
         f'if exist "{old}" del /f /q "{old}"',
         f'move /y "{exe_path}" "{old}" >NUL',
         f'move /y "{new_exe}" "{exe_path}" >NUL',
-        f'start "" "{exe_path}"',
+        "timeout /t 1 /nobreak >NUL",
+        # /D so the new process's cwd is this folder, not a leftover _MEI path.
+        f'start "" /D "{folder}" "{exe_path}"',
         '(goto) 2>nul & del "%~f0"',
         "",
     ])
@@ -162,7 +183,16 @@ def launch_handoff(script):
     flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
              | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
     subprocess.Popen(["cmd.exe", "/c", str(script)], creationflags=flags, close_fds=True,
-                     cwd=str(Path(script).parent))
+                     cwd=str(Path(script).parent), env=clean_environment())
+
+
+def clean_environment(environ=None):
+    """The current environment minus PyInstaller's bootloader variables, so a
+    process started from a frozen kit unpacks itself instead of reusing (and
+    outliving) this kit's temp folder. See `_handoff_script`."""
+    environ = os.environ if environ is None else environ
+    return {k: v for k, v in environ.items()
+            if not (k.startswith("_MEIPASS") or k.startswith("_PYI_"))}
 
 
 def can_self_update():

@@ -10,7 +10,7 @@ from art_kit.model import Drawing, Palette
 # Everything the app seeds: two models per flower, plus the forest props the
 # engine loads (#v34.8). Derived, so adding a species or a tree moves it
 # automatically instead of leaving a stale literal behind.
-SEEDED = len(engine_io.SPECIES) * 2 + sum(n for _, n in engine_io.FOREST)
+SEEDED = engine_io.seeded_count()
 
 
 PAL = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C", rim="2E0810")
@@ -125,7 +125,7 @@ class LibraryTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.lib = store.Library(Path(self.tmp.name))
 
-    def test_seeding_writes_all_twenty_four_models(self):
+    def test_seeding_writes_every_shipped_drawing(self):
         self.lib.seed_from_engine()
         self.assertEqual(len(self.lib.drawings), SEEDED)
         self.assertEqual(len(list(Path(self.tmp.name).glob("*.json"))), SEEDED)
@@ -208,3 +208,13 @@ class LibraryTest(unittest.TestCase):
         skipped = again.load_all()
         self.assertEqual(len(again.drawings), SEEDED)
         self.assertEqual(len(skipped), 1)
+
+    def test_seed_missing_kinds_adds_bugs_to_an_older_library(self):
+        self.lib.add(Drawing.blank(16, 4, PAL, name="only a flower", species="lale"))
+        added = self.lib.seed_missing_kinds()
+        kinds = {(d.species, d.model) for d in self.lib.drawings}
+        for species, model in engine_io.seed_kinds()["bugs"]:
+            self.assertIn((species, model), kinds)
+        self.assertTrue(any(d.label == "bugs" for d in added))
+        again = self.lib.seed_missing_kinds()
+        self.assertEqual(again, [], "a second pass adds nothing")

@@ -4,6 +4,39 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.7.0 — update relaunch, SVG, languages, stick/mirror lines, bugs, corner zoom
+**Date:** 2026-09-18
+
+Fifteen items. Drawings stay JSON in the per-user data folder; an update still
+only swaps the program. Engine sprites for the game remain PNG (x16). SVG is
+the share format that stays sharp when zoomed.
+
+1. Windows self-update no longer inherits the old kit's `_MEIPASS`/`_PYI_*`
+   variables (the "Failed to load Python DLL …\_MEI…\python312.dll" dialog).
+2. WITH / WITHOUT GRID sits just above UPDATE / HELP.
+3. New-drawing Flower preset is 16×16 (plus a Bug 8×8).
+4. Export SVG (vector rects, Illustrator-sharp at any zoom); PNG/JPG remain.
+5. Empty-pixel count to the left of `pixels N`.
+6. A separator under Eraser, above Grid.
+7. Ctrl+C then click a cell to paste — including in another drawing.
+8. FILL with a selection paints the rectangle; clicking SELECT again (or Esc,
+   or a click outside the drawing) dismisses the stuck box.
+9. Colour-strip overflow: `… ‹ ›` pages the rest of the colours.
+10. LANGUAGE (EN / TR / PL / DE) left of UPDATE / HELP; "click to resize" gone;
+    button boxes keep their size, type shrinks.
+11. ☰ above the library scrollbar, aligned with ALL, collapses the list.
+12. MIRROR and STICK are bright lines *between* pixels (not a cell overlay).
+    MIRROR still live-mirrors a stroke. STICK of length 5 copies those 5
+    rows/columns across the line.
+13. Pixel Pomo bugs (bee, butterflies, ladybugs) with label `bugs`, seeded
+    into existing libraries.
+14. Library = JSON. Engine sprite = PNG the game loads. Export JSON to share a
+    drawing file; update never replaces drawings.
+15. Drag the drawing's bottom-right corner to enlarge on-screen pixels;
+    Ctrl+Z undoes that zoom.
+
+---
+
 ## v2.6.0 — labels, select/copy/paste, a strip under the canvas, and exports that just write the file
 **Date:** 2026-09-17
 

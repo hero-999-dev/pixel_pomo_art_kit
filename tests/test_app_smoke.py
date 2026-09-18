@@ -9,7 +9,7 @@ from art_kit.settings import Settings
 # Everything the app seeds: two models per flower, plus the forest props the
 # engine loads (#v34.8). Derived, so adding a species or a tree moves it
 # automatically instead of leaving a stale literal behind.
-SEEDED = len(engine_io.SPECIES) * 2 + sum(n for _, n in engine_io.FOREST)
+SEEDED = engine_io.seeded_count()
 
 
 
@@ -276,8 +276,8 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual((d.width, d.height), (16, 15))
         self.assertIn(d, self.lib.drawings)
         presets = {name: (c, r) for name, c, r in app.size_presets()}
-        flower_h = len(engine_io.gen_objects()._FLOWER_BLOOMS["lale"][0])
-        self.assertEqual(presets["Flower"], (16, flower_h))
+        self.assertEqual(presets["Flower"], (16, 16))
+        self.assertEqual(presets["Bug"], (8, 8))
         self.assertEqual(presets["Bush"], (16, 16))
         self.assertEqual({v for k, v in presets.items() if k.startswith("Tree")},
                          {(32, 32), (48, 48), (64, 64)})
@@ -307,13 +307,13 @@ class AppSmokeTest(unittest.TestCase):
         self.ui.on_canvas_drag(4, 9)  # runs past the bar's reach (rows 2..6)
         self.ui.on_canvas_release()
         self.assertEqual(d.get(4, 3), (9, 9, 9, 255))
-        self.assertEqual(d.get(10, 3), (9, 9, 9, 255), "mirrored across column 7")
-        self.assertEqual(d.get(10, 6), (9, 9, 9, 255))
-        self.assertIsNone(d.get(10, 7), "beyond the bar: painted alone")
+        self.assertEqual(d.get(9, 3), (9, 9, 9, 255), "mirrored across the line at column 7")
+        self.assertEqual(d.get(9, 6), (9, 9, 9, 255))
+        self.assertIsNone(d.get(9, 7), "beyond the bar: painted alone")
         self.assertEqual(d.get(4, 9), (9, 9, 9, 255))
         self.ui.undo()
         self.assertIsNone(self.ui.history.current.get(4, 3))
-        self.assertIsNone(self.ui.history.current.get(10, 3), "the stroke and its mirror undo together")
+        self.assertIsNone(self.ui.history.current.get(9, 3), "the stroke and its mirror undo together")
         self.ui.set_symmetry(False)
         self.ui.on_canvas_press(5, 4)
         self.ui.on_canvas_release()
@@ -331,22 +331,24 @@ class AppSmokeTest(unittest.TestCase):
 
     # ---- #v2.5.0 ------------------------------------------------------------
 
-    def test_stick_mode_paints_a_run_from_the_click(self):
+    def test_stick_mode_places_a_line_and_stamps_the_strip(self):
         self.ui.new_drawing(16, 16)
         self.ui.set_tool("draw")
         self.ui.set_ink((0x80, 0, 0xff, 255))
-        self.ui.set_symmetry_mode(symmetry.STICK)
-        self.ui.set_symmetry_orientation(symmetry.HORIZONTAL)
-        self.ui.set_symmetry_length(5)
-        self.assertFalse(self.ui._placing_bar, "STICK needs no bar")
-        self.ui.on_canvas_press(3, 8)
-        self.ui.on_canvas_release()
         d = self.ui.history.current
-        self.assertEqual([d.get(c, 8) for c in range(3, 8)], [(0x80, 0, 0xff, 255)] * 5)
-        self.assertIsNone(d.get(2, 8))
-        self.assertIsNone(d.get(8, 8))
+        d.paint(2, 8, (0x80, 0, 0xff, 255))
+        self.ui.set_symmetry_mode(symmetry.STICK)
+        self.ui.set_symmetry_orientation(symmetry.VERTICAL)
+        self.ui.set_symmetry_length(5)
+        self.assertTrue(self.ui._placing_bar, "STICK with no line yet waits for a click")
+        self.ui.on_canvas_press(8, 8)  # places the line; stamps rows 6..10
+        self.ui.on_canvas_release()
+        self.assertFalse(self.ui._placing_bar)
+        self.assertEqual((self.ui.symmetry_bar.col, self.ui.symmetry_bar.row), (8, 8))
+        # 2*8-1-2 = 13
+        self.assertEqual(self.ui.history.current.get(13, 8), (0x80, 0, 0xff, 255))
         self.ui.undo()
-        self.assertIsNone(self.ui.history.current.get(5, 8), "one click, one undo")
+        self.assertIsNone(self.ui.history.current.get(13, 8), "the stamp is one undo")
         self.assertEqual(self.settings.symmetry["mode"], "stick")
 
     def test_pressing_on_the_bar_drags_it_instead_of_painting(self):
@@ -622,6 +624,7 @@ class AppSmokeTest(unittest.TestCase):
         self.ui.on_canvas_press(0, 1)
         self.ui.on_canvas_release()
         self.assertIn("pixels 5", self.ui._counter_label.cget("text"))
+        self.assertIn("empty 31", self.ui._counter_label.cget("text"))
         self.ui._hover_cell = (0, 0)
         self.ui._refresh_counter()
         self.ui._refresh_cursor_label()
@@ -647,3 +650,64 @@ class AppSmokeTest(unittest.TestCase):
         self.ui.undo()
         path = self.lib._paths[id(drawing)]
         self.assertEqual(store.load(path).cells, self.ui.history.current.cells)
+
+    def test_fill_paints_the_selection_and_select_again_dismisses_it(self):
+        self.ui.new_drawing(8, 8)
+        self.ui.set_ink((1, 2, 3, 255))
+        self.ui.set_tool("select")
+        self.ui.select_region(1, 1, 3, 2)
+        self.ui.set_tool("fill")
+        d = self.ui.history.current
+        filled = {(c, r) for r in range(8) for c in range(8) if d.get(c, r) == (1, 2, 3, 255)}
+        self.assertEqual(filled, {(1, 1), (2, 1), (3, 1), (1, 2), (2, 2), (3, 2)})
+        self.assertIsNone(self.ui.selection, "FILL with a selection dismisses the box")
+        self.assertEqual(self.ui.tool, "fill")
+        self.ui.set_tool("select")
+        self.ui.select_region(0, 0, 1, 1)
+        self.assertIsNotNone(self.ui.selection)
+        self.ui.set_tool("select")  # click SELECT again
+        self.assertIsNone(self.ui.selection)
+        self.assertEqual(self.ui.tool, "select")
+
+    def test_copy_then_click_pastes_and_survives_switching_drawings(self):
+        a = self.ui.new_drawing(8, 8)
+        a.paint(0, 0, "m")
+        a.paint(1, 0, "l")
+        self.ui.select_region(0, 0, 1, 0)
+        self.assertTrue(self.ui.copy_selection())
+        self.assertTrue(self.ui._paste_armed)
+        self.assertTrue(self.ui.paste_at(3, 4))
+        self.assertEqual(self.ui.history.current.get(3, 4), "m")
+        self.assertEqual(self.ui.history.current.get(4, 4), "l")
+        b = self.ui.new_drawing(8, 8)
+        self.assertTrue(self.ui.paste_at(1, 1))
+        self.assertEqual(b.get(1, 1), "m")
+        self.assertEqual(b.get(2, 1), "l")
+
+    def test_corner_zoom_is_undoable(self):
+        self.ui.new_drawing(8, 8)
+        start = self.ui.zoom_level
+        self.ui.set_zoom(start + 4, undoable=True)
+        self.assertEqual(self.ui.zoom_level, start + 4)
+        self.ui.undo()
+        self.assertEqual(self.ui.zoom_level, start)
+
+    def test_language_and_library_collapse_persist(self):
+        self.ui.set_language("tr")
+        self.assertEqual(self.settings.language, "tr")
+        self.assertIn("KAYDET", self.ui._save_button.cget("text"))
+        self.ui.set_language("en")
+        self.ui.set_library_collapsed(True)
+        self.assertTrue(self.settings.library_collapsed)
+        self.assertEqual(int(self.ui._library_outer.cget("width")), app.LIBRARY_RAIL)
+        self.ui.set_library_collapsed(False)
+        self.assertEqual(int(self.ui._library_outer.cget("width")), app.LIBRARY_W)
+
+    def test_click_to_resize_hint_is_gone(self):
+        texts = []
+        for w in self.ui._size_label.master.winfo_children():
+            try:
+                texts.append(w.cget("text"))
+            except Exception:
+                pass
+        self.assertFalse(any("click to resize" in str(t) for t in texts))
