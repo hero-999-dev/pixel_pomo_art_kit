@@ -48,6 +48,11 @@ jobs:
       - name: Install
         run: python -m pip install --upgrade pip Pillow
 
+      - name: Versions
+        shell: bash
+        run: |
+          python -c "import sys, platform, tkinter; r = tkinter.Tk(); print(sys.version); print(platform.platform(), platform.mac_ver()[0]); print('Tk', r.tk.call('info', 'patchlevel'), r.tk.call('tk', 'windowingsystem')); r.destroy()"
+
       - name: Tests
         working-directory: ArtKit
         shell: bash
@@ -59,3 +64,38 @@ jobs:
           else
             python -X faulthandler -m unittest discover -s tests -v
           fi
+
+      # A segfault inside Tk leaves no Python traceback past the call into
+      # Tk; macOS's own crash report has the native frames.
+      - name: Crash report (macOS)
+        if: failure() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import glob, json, os, time
+          folder = os.path.expanduser("~/Library/Logs/DiagnosticReports")
+          for _ in range(30):
+              files = sorted(glob.glob(os.path.join(folder, "*.ips")), key=os.path.getmtime)
+              if files:
+                  break
+              time.sleep(2)
+          print("
+".join(sorted(os.listdir(folder))) if os.path.isdir(folder) else "no folder")
+          if files:
+              path = files[-1]
+              print("==", path)
+              header, _, body = open(path, encoding="utf-8").read().partition("
+")
+              report = json.loads(body)
+              print(report.get("exception"), report.get("termination"))
+              print(report.get("asi"))
+              images = report.get("usedImages", [])
+              for n, thread in enumerate(report.get("threads", [])):
+                  if not (thread.get("triggered") or n == report.get("faultingThread")):
+                      continue
+                  for frame in thread.get("frames", [])[:60]:
+                      i = frame.get("imageIndex")
+                      name = images[i].get("name", "?") if i is not None and i < len(images) else "?"
+                      print(f"{name:32} {frame.get('symbol', hex(frame.get('imageOffset', 0)))}"
+                            f" +{frame.get('symbolLocation', 0)}")
+          PY
