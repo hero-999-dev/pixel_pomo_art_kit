@@ -4,6 +4,21 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.8.0 — released
+**Date:** 2026-09-23 · tag `v2.8.0`
+
+The first run of the release workflow published the Windows build, and both Mac
+builds stopped at their tests: every window failed to build with `bad button
+number "9"`. The middle-button pan had been bound to Button-9 on macOS to keep
+it off Button-2 (a Mac's right click, the eyedropper) - and Tk 8.6 knows buttons
+1 to 5 only. On a Mac both 2 and 3 are the right click, so the pan there is
+Space+drag alone and nothing is bound for the middle button. The workflow was
+then run again by hand for `v2.8.0`, from the fixed `main`, to put all three
+builds in the one release. A smoke-suite run with `theme.IS_MAC` forced on is
+the check that would have caught it on Windows.
+
+---
+
 ## v2.8.0 (in progress) — ninth test pass: a ruled guide, drawn arrows, names renamed and taken off, white and black grounds
 **Date:** 2026-09-23 · not tagged yet
 

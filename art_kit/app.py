@@ -2386,12 +2386,15 @@ class ArtKitApp:
         self.canvas.bind("<Motion>", self._on_motion)
         self.canvas.bind("<Leave>", self._on_leave)
         # Panning (#v2.8.0). Space+drag is the one every paint program has;
-        # the middle button is the one every mouse has. Not Button-2 on macOS,
-        # where Tk reports a RIGHT click as Button-2 and that is the
-        # eyedropper.
-        self.canvas.bind("<ButtonPress-2>" if not theme.IS_MAC else "<ButtonPress-9>",
-                         self._pan_start)
-        self.canvas.bind("<B2-Motion>" if not theme.IS_MAC else "<B9-Motion>", self._pan_move)
+        # the middle button is the one every mouse has - except on macOS,
+        # where Tk reports a RIGHT click as Button-2 or Button-3 depending on
+        # its version, and both are the eyedropper (`theme.right_click_events`).
+        # There the pan is Space+drag alone. (The first try bound a "Button-9"
+        # instead: Tk 8.6 knows buttons 1 to 5 only, and on a Mac the window
+        # failed to build at all - caught by the v2.8.0 release's Mac tests.)
+        if not theme.IS_MAC:
+            self.canvas.bind("<ButtonPress-2>", self._pan_start)
+            self.canvas.bind("<B2-Motion>", self._pan_move)
         self.root.bind("<KeyPress-space>", self._space_down)
         self.root.bind("<KeyRelease-space>", self._space_up)
 
