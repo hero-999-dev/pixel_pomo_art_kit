@@ -77,9 +77,11 @@ jobs:
 
       # The gate: the kit renders through the game's own compositing code, so a
       # generator change that breaks it must stop the release, not ship in it.
+      # -X faulthandler: on a Mac, Tk can crash the process outright rather
+      # than raise, and this prints where (v2.8.0's first Mac builds).
       - name: Tests
         working-directory: ArtKit
-        run: python -m unittest discover -s tests
+        run: python -X faulthandler -m unittest discover -s tests
 
       - name: Build
         working-directory: ArtKit
