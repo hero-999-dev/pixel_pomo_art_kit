@@ -1,4 +1,5 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,7 +26,14 @@ def _tk_or_skip():
         root = tkinter.Tk()
     except tkinter.TclError as exc:  # no display
         raise unittest.SkipTest(f"no Tk display: {exc}")
-    root.withdraw()
+    # Withdrawn, so that a run does not put a window up per test - but not
+    # on a Mac. There Tk 8.6 does not survive a suite of withdrawn roots:
+    # a hundred-odd tests in, closing a dialog inside its own event loop
+    # crashed the process in every run on both Macs (v2.8.0's first Mac
+    # builds), and in none with the roots left on screen. The app itself
+    # never withdraws its window.
+    if sys.platform != "darwin":
+        root.withdraw()
     return root
 
 
