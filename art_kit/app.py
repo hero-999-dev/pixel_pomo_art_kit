@@ -464,12 +464,7 @@ class ArtKitApp:
         self._pin_chrome()
         root.protocol("WM_DELETE_WINDOW", self.close)
         if theme.IS_MAC:
-            # Cmd+Q bypasses WM_DELETE_WINDOW on macOS; this is the hook Tk
-            # gives for it, and without it a quit skips the final save.
-            try:
-                root.createcommand("::tk::mac::Quit", self.close)
-            except tk.TclError:
-                pass
+            self._hook_mac_quit()
         if library.drawings:
             self.select(library.drawings[0])
         # A frozen build looks for a newer release once, quietly, after the
@@ -1290,6 +1285,30 @@ class ArtKitApp:
         if ok:
             self._set_status(t("saved"), flash=True)
         return ok
+
+    def _hook_mac_quit(self):
+        """Cmd+Q bypasses WM_DELETE_WINDOW on macOS; `::tk::mac::Quit` is the
+        hook Tk gives for it, and without it a quit skips the final save.
+
+        Let go of with the window. tkinter deletes the commands it makes for
+        callbacks when their widget is destroyed, but not one made by name
+        with `createcommand`: the interpreter kept `self.close`, so the kit,
+        and its root, lived as long as the process. The app has one root, so
+        that cost nothing; the tests make one each, and on a Mac every one of
+        them stayed alive - 127 by the message-box test, found while chasing
+        v2.8.0's Mac test crash (which it turned out not to cause)."""
+        try:
+            self.root.createcommand("::tk::mac::Quit", self.close)
+        except tk.TclError:
+            return
+        self.root.bind("<Destroy>", self._unhook_mac_quit, add="+")
+
+    def _unhook_mac_quit(self, event):
+        if event.widget is self.root:
+            try:
+                self.root.deletecommand("::tk::mac::Quit")
+            except tk.TclError:
+                pass
 
     def close(self):
         """Window close / Cmd+Q: finish any stroke, save everything, quit."""

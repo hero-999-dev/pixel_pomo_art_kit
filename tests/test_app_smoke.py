@@ -2773,6 +2773,24 @@ class AppSmokeTest(unittest.TestCase):
         # window at all depends on the session: this headless one never does.)
         self.assertEqual(float(menu._win.attributes("-alpha")), 1.0, "placed, then shown")
 
+    def test_a_destroyed_kit_lets_go_of_its_root(self):
+        """The Cmd+Q hook is a Tcl command made by name, which tkinter does not
+        delete with the window: on a Mac every kit and root the tests made
+        stayed alive for the rest of the run. Hooked here on any platform."""
+        import gc
+        import weakref
+        root = _tk_or_skip()
+        ui = app.ArtKitApp(root, self.lib, self.settings)
+        ui._hook_mac_quit()
+        self.assertTrue(root.tk.call("info", "commands", "::tk::mac::Quit"))
+        gone = weakref.ref(root)
+        for timer in root.tk.splitlist(root.tk.call("after", "info")):
+            root.after_cancel(timer)
+        root.destroy()
+        del root, ui
+        gc.collect()
+        self.assertIsNone(gone(), "the root outlived its window")
+
     def test_each_drawing_keeps_its_own_symmetry(self):
         """"mirror ve stick açık kalıyor, farklı bir ekrana geçince ... alanın
         dışında kalmış": the line followed the artist into the next drawing,
