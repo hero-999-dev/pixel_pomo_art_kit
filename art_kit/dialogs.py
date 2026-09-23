@@ -197,11 +197,16 @@ class PopupMenu:
         for key in ("<Return>", "<KP_Enter>", "<space>"):
             win.bind(key, lambda _e: self._invoke_active())
         win.bind("<FocusOut>", self._on_focus_out)
-        win.focus_force()
-        try:
-            win.grab_set()
-        except tk.TclError:
-            pass
+        # Keys and clicks come here while it is up - over a window the artist
+        # can see. Only a test posts a menu over a withdrawn root, and a grab
+        # there is what Tk 8.6 on macOS does not survive: closing the grabbed
+        # window corrupted its heap (v2.8.0's first Mac builds).
+        if self._parent.winfo_toplevel().winfo_viewable():
+            win.focus_force()
+            try:
+                win.grab_set()
+            except tk.TclError:
+                pass
 
     post = tk_popup
 

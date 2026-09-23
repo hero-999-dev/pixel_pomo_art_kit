@@ -1196,8 +1196,9 @@ class AppSmokeTest(unittest.TestCase):
     def _camera(self, width=1000, height=800, origin=(0, 0)):
         """Pretend the pane is `width` x `height` with its corner at `origin`.
 
-        Tk reports a 1x1 canvas for a window it has not mapped, and this
-        machine never maps one (no interactive session), so a camera test run
+        Tk reports a 1x1 canvas for a window it has not mapped - on Windows
+        and X11; Aqua lays an unmapped window out all the same, at a size no
+        test chose - and the tests never map one, so a camera test run
         against the real widget would be measuring the fallback instead of the
         code. The arithmetic under test is all in these three seams, so they
         are the honest place to stand the test up - and `_scroll_to` is
@@ -1464,12 +1465,15 @@ class AppSmokeTest(unittest.TestCase):
         set_zoom all leave it where it is, and FREE gives the zoom back."""
         self.ui.new_drawing(16, 16)
         self._camera(400, 400)
+        # The pane is laid out and fitted, as a real session is: FIT is the
+        # button, not the first fit - which Aqua, laying out the test's
+        # withdrawn window, would otherwise run at the first redraw.
+        self.ui._fitted = True
         self.ui.set_zoom(32)
         self.ui.set_camera_mode(app.CAM_LOCK)
         self.ui.zoom(-1)
         self.ui.zoom(+1, focus=(10, 10))
         self.ui.set_zoom(app.MIN_ZOOM)
-        self.ui._fitted = True   # the pane is laid out: FIT is the button, not the first fit
         self.ui.zoom_to_fit()
         self.ui.fit_pressed()
         self.ui._cam_fit_button.invoke()
@@ -1684,11 +1688,14 @@ class AppSmokeTest(unittest.TestCase):
         not laid out - which is when FIT runs, 80ms after a drawing opens."""
         self.ui.new_drawing(16, 16)
         self._camera(400, 400)
+        # A pane Tk has not laid out: 1x1. Said, not assumed - Aqua lays out
+        # even the withdrawn window the tests run in.
+        self.ui.canvas.winfo_width = self.ui.canvas.winfo_height = lambda: 1
         self.ui.zoom_to_fit()
         self.assertEqual(self.ui.zoom_level, self.ui.fit_zoom())
         self.assertLessEqual(16 * self.ui.zoom_level, 400)
-        # The pane is 1x1 in a window Tk never mapped, so that fit was against
-        # NOMINAL_VIEW - and the app knows it, and will fit again for real.
+        # So that fit was against NOMINAL_VIEW - and the app knows it, and
+        # will fit again for real.
         self.assertFalse(self.ui._pane_known())
         self.assertFalse(self.ui._fitted)
 
@@ -1896,6 +1903,7 @@ class AppSmokeTest(unittest.TestCase):
         self.ui.new_drawing(16, 16)
         cw = ch = 400
         self._camera(cw, ch, origin=(137, 249))
+        self.ui._fitted = True   # framed by the artist: past the first fit
         self.ui.zoom_level = 64
         self.ui.set_camera_mode(app.CAM_LOCK)
         self.assertEqual(self.ui._locked_at, (137, 249))
