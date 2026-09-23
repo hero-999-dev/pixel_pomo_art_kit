@@ -16,7 +16,12 @@ touches the network: the updater is tested against a fake opener.
 Everything is plain `unittest` — no third-party test framework, no fixtures
 beyond `tempfile.TemporaryDirectory`, no mocked filesystem. The release
 workflow runs the suite on Windows, Apple Silicon and Intel macOS before it
-builds anything.
+builds anything. **Test Art Kit** (`.github/workflows/test.yml`) runs the same
+suite on the same three runners by hand, building and publishing nothing:
+optional space-separated `-k` patterns, `-X faulthandler`, and on a Mac the
+crash report's native frames if Tk takes the process down. On a Mac the smoke
+tests keep their root on screen rather than withdrawn (`_tk_or_skip`): Tk 8.6
+there does not survive a suite of withdrawn roots (v2.8.0).
 
 ## What each file covers
 
@@ -50,7 +55,10 @@ builds anything.
   `Button-2`, Cmd+Q bypasses `WM_DELETE_WINDOW`, Documents needs permission),
   but nobody has clicked through the Mac build as part of this release. The
   Documents-refused fallback in `__main__.data_dir()` in particular cannot be
-  provoked from Windows and is untested beyond its own logic.
+  provoked from Windows and is untested beyond its own logic. v2.8.0's Mac
+  fixes were found and checked on the CI runners - including one window
+  through 150 rounds of message box, popup menu and export dialog, clean three
+  times on each Mac - not by hand.
 - **Interactive widget behaviour.** Double-click-to-select in the ink entry,
   right-click on a favourite opening a menu, the Spinbox arrows, hover colours
   on buttons, the ghost bar following the cursor — all exercised by hand, none

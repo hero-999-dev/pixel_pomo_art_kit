@@ -5,17 +5,49 @@ What was built, round by round. Newest first.
 ---
 
 ## v2.8.0 — released
-**Date:** 2026-09-23 · tag `v2.8.0`
+**Date:** 2026-09-23 · tag `v2.8.0` · the three builds from `main` at `0863e99`
 
 The first run of the release workflow published the Windows build, and both Mac
 builds stopped at their tests: every window failed to build with `bad button
 number "9"`. The middle-button pan had been bound to Button-9 on macOS to keep
 it off Button-2 (a Mac's right click, the eyedropper) - and Tk 8.6 knows buttons
 1 to 5 only. On a Mac both 2 and 3 are the right click, so the pan there is
-Space+drag alone and nothing is bound for the middle button. The workflow was
-then run again by hand for `v2.8.0`, from the fixed `main`, to put all three
-builds in the one release. A smoke-suite run with `theme.IS_MAC` forced on is
-the check that would have caught it on Windows.
+Space+drag alone and nothing is bound for the middle button. A smoke-suite run
+with `theme.IS_MAC` forced on is the check that would have caught it on Windows.
+
+The second run, from the fixed `main`, got further and crashed: both Mac test
+runs died with a segmentation fault and no Python traceback. A new workflow,
+**Test Art Kit** (`test.yml`), runs the suite on the three release runners by
+hand - with `-k` patterns, `-X faulthandler`, and the macOS crash report's
+native frames on a failure - and the Mac runners (Tk 8.6.16; macOS 26 on
+Apple silicon, 15 on Intel) were probed with small scripts until each cause
+was pinned:
+
+- **A dialog forced on screen over a hidden window.** `theme.reveal`
+  deiconified any withdrawn window, including a dialog Tk keeps withdrawn
+  because its master is - the tests' root. Grabbed and closed inside its own
+  `wait_window`, that corrupted Tk's heap on a Mac, and the next idle call
+  jumped through garbage (4 runs in 10). `reveal` now undoes what `unseen` did
+  and nothing more.
+- **A popup's grab over a hidden window** - the same condition, from the one
+  Toplevel that is not transient. Its focus and grab now wait for a visible
+  parent.
+- **Three camera tests** assumed Tk reports a 1x1 pane for a window it never
+  mapped; Aqua lays one out. They set that premise themselves now.
+- **Withdrawn roots, a hundred-odd deep.** Even with both fixed, the
+  message-box test crashed every Mac run of the whole suite, and none with the
+  roots left on screen - so on a Mac the smoke tests keep their root on
+  screen. The app never withdraws its window, and one window through 150
+  rounds of message box, popup menu and export dialog ran clean three times on
+  each Mac.
+- **A detour.** The Cmd+Q hook keeps its interpreter alive for the whole
+  process, which looked like the leak behind it: 127 live roots by the
+  message-box test. Freeing them did not stop that crash and started another -
+  on macOS 26, menu validation called into a deleted interpreter, Tk keeping
+  the first one as its own. Reverted; the hook says why it stays.
+
+The tag stays on `8a98bbf`. The builds in the release come from `0863e99`,
+which differs from it only by the fixes above, their tests and the CI.
 
 ---
 
