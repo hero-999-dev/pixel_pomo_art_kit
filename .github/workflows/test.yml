@@ -79,13 +79,11 @@ jobs:
               if files:
                   break
               time.sleep(2)
-          print("
-".join(sorted(os.listdir(folder))) if os.path.isdir(folder) else "no folder")
+          print(chr(10).join(sorted(os.listdir(folder))) if os.path.isdir(folder) else "no folder")
           if files:
               path = files[-1]
               print("==", path)
-              header, _, body = open(path, encoding="utf-8").read().partition("
-")
+              header, _, body = open(path, encoding="utf-8").read().partition(chr(10))
               report = json.loads(body)
               print(report.get("exception"), report.get("termination"))
               print(report.get("asi"))
