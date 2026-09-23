@@ -40,7 +40,7 @@ def _tk_or_skip():
 class AppSmokeTest(unittest.TestCase):
     def setUp(self):
         self.root = _tk_or_skip()
-        self.addCleanup(self.root.destroy)
+        self.addCleanup(self._destroy_root)
         self.addCleanup(self._cancel_timers)      # runs first: cleanups are LIFO
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -49,6 +49,12 @@ class AppSmokeTest(unittest.TestCase):
         # Preferences go to the temp dir too - never the developer's own file.
         self.settings = Settings(Path(self.tmp.name) / "settings.json")
         self.ui = app.ArtKitApp(self.root, self.lib, self.settings)
+
+    def _destroy_root(self):
+        try:
+            self.root.destroy()
+        except tkinter.TclError:
+            pass          # a test that needed its root gone before it ended
 
     def _cancel_timers(self):
         """A pending `after` (the 80ms fit every `select` schedules) outlives
@@ -2787,6 +2793,10 @@ class AppSmokeTest(unittest.TestCase):
         stayed alive for the rest of the run. Hooked here on any platform."""
         import gc
         import weakref
+        # One root at a time, as between any two tests - the fixture's goes
+        # first. Two whole kits alive at once crashed Tk 8.6 on Apple silicon.
+        self._cancel_timers()
+        self.root.destroy()
         root = _tk_or_skip()
         ui = app.ArtKitApp(root, self.lib, self.settings)
         ui._hook_mac_quit()
