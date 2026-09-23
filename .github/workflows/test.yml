@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       pattern:
-        description: 'Only tests matching this -k pattern (empty: all)'
+        description: 'Only tests matching any of these space-separated -k patterns (empty: all)'
         required: false
         default: ''
 
@@ -59,11 +59,9 @@ jobs:
         env:
           PATTERN: ${{ github.event.inputs.pattern }}
         run: |
-          if [ -n "$PATTERN" ]; then
-            python -X faulthandler -m unittest discover -s tests -v -k "$PATTERN"
-          else
-            python -X faulthandler -m unittest discover -s tests -v
-          fi
+          args=()
+          for p in $PATTERN; do args+=(-k "$p"); done
+          python -X faulthandler -m unittest discover -s tests -v "${args[@]}"
 
       # A segfault inside Tk leaves no Python traceback past the call into
       # Tk; macOS's own crash report has the native frames.
