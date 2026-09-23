@@ -204,15 +204,23 @@ def unseen(window):
         window.attributes("-alpha", 0.0)
     except tk.TclError:
         window.withdraw()
+        window._unseen_withdrawn = True
 
 
 def reveal(window):
-    """Show a window `unseen` made, where it now stands."""
+    """Show a window `unseen` made, where it now stands - undoing what
+    `unseen` did and nothing more. A dialog is transient, and Tk keeps a
+    transient withdrawn while its master is; deiconifying every withdrawn
+    window here (v2.8.0's first cut) put a grabbed dialog on screen over a
+    master that was not, which Tk 8.6 on macOS does not survive: closing it
+    corrupted Tk's heap, and the next idle call crashed the process (v2.8.0's
+    first Mac builds, whose tests keep the root withdrawn)."""
     try:
         window.attributes("-alpha", 1.0)
     except tk.TclError:
         pass
-    if window.state() == "withdrawn":
+    if getattr(window, "_unseen_withdrawn", False):
+        window._unseen_withdrawn = False
         window.deiconify()
 
 
