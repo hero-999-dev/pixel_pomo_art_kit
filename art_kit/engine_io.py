@@ -12,6 +12,7 @@ import os
 import sys
 from pathlib import Path
 
+from art_kit import provenance
 from art_kit.model import Drawing, Palette, BLOOM_LETTERS, PLANT_LETTERS
 
 # Both checkouts live side by side under one "Pixel Pomo" folder, so the game
@@ -22,6 +23,8 @@ APP_DIR = Path(__file__).resolve().parents[2] / "App"
 GEN_OBJECTS_DIR = Path(
     os.environ.get("PIXEL_POMO_TOOLS", str(APP_DIR / "flutter" / "tools"))
 )
+# The game's shipped sprites, beside its tools: flutter/tools -> flutter/assets.
+OBJECTS_DIR = GEN_OBJECTS_DIR.parent / "assets" / "objects"
 
 
 @functools.lru_cache(maxsize=1)
@@ -71,10 +74,21 @@ DISPLAY_NAMES = {
     "orkide": "Orchid",
     "begonya": "Begonia",
     "kamelya": "Camellia",
+    "anthurium": "Anthurium",
+    "pilea": "Pilea",
+    "sundew": "Sundew",
     "tree": "Tree",
     "bush": "Bush",
     "rock": "Rock",
 }
+
+# Drawing Patch 1 (the game's #v36.1): three houseplants Ola Górecka drew as 16x16
+# pixel art. The rest of the catalogue is generator output; these the game
+# ships as the very PNGs she drew - flutter/assets/objects, at x16 - so that
+# is where the kit reads them from (#v2.8.0). `(species, how many models)`;
+# anthurium has one form, and its one sprite carries no model number.
+PATCH_FLOWERS = {"anthurium": 1, "pilea": 2, "sundew": 2}
+PATCH_ARTIST = "Ola Górecka"   # was "Mir" until the ninth test pass of #v2.8.0
 
 # The garden's critters (#v2.7.0, item 13): the engine's CRITTERS table, in
 # its order, as `bug` models 0..6. Each is an 8x8 raw-pixel sprite; the game
@@ -98,6 +112,8 @@ def display_name(species, model):
     base = DISPLAY_NAMES.get(species, species)
     if is_forest(species):
         return f"{base} {model + 1:02d}"
+    if PATCH_FLOWERS.get(species) == 1:
+        return base  # the only form there is: "Anthurium", not "Anthurium 1"
     return f"{base} {model + 1}"
 
 # The forest that surrounds the garden (#v34.8). Not flowers: these are raw
@@ -119,7 +135,7 @@ def default_label(species):
     nothing otherwise."""
     if species in FOREST_KINDS:
         return species
-    if species in SPECIES:
+    if species in SPECIES or species in PATCH_FLOWERS:
         return "flower"
     if species == BUG:
         return "bugs"
@@ -130,7 +146,9 @@ def default_label(species):
 # `Library.seed_missing_kinds` walks this so a kind added in a later version
 # (the bugs, #v2.7.0) lands in a library that was seeded before it existed.
 def seed_kinds():
-    kinds = {"flower": [(s, v) for s in SPECIES for v in (0, 1)]}
+    kinds = {"flower": [(s, v) for s in SPECIES for v in (0, 1)]
+             + [(s, v) for s, n in PATCH_FLOWERS.items() for v in range(n)
+                if patch_sprite(s, v) is not None]}
     for kind, n in FOREST:
         kinds[kind] = [(kind, i) for i in range(n)]
     kinds["bugs"] = [(BUG, i) for i in range(len(BUG_IDS))]
@@ -148,7 +166,39 @@ def import_seed(species, model):
         return import_bug(model)
     if is_forest(species):
         return import_forest_prop(species, model)
+    if species in PATCH_FLOWERS:
+        return import_patch_flower(species, model)
     return import_flower(species, model)
+
+
+def patch_sprite(species, model):
+    """Where the game keeps one Drawing Patch sprite, or None when it cannot
+    be read here - no game checkout and no bundled copy, or no Pillow to read
+    a PNG with. None keeps it out of the seeding instead of failing a start."""
+    name = (f"flower_{species}.png" if PATCH_FLOWERS[species] == 1
+            else f"flower_{species}_{model}.png")
+    for folder in (OBJECTS_DIR,
+                   Path(getattr(sys, "_MEIPASS", "")) / "objects" if getattr(sys, "frozen", False)
+                   else None):
+        if folder is not None and (folder / name).is_file():
+            try:
+                import PIL  # noqa: F401  - import_png reads it with Pillow
+            except ImportError:
+                return None
+            return folder / name
+    return None
+
+
+def import_patch_flower(species, model):
+    """One Drawing Patch model as an editable drawing: her x16 PNG brought
+    back to its 16x16 cells - losslessly, the sprites being hard-edged 16 px
+    blocks - named, labelled a flower, and signed by its artist."""
+    drawing, _notes = import_png(patch_sprite(species, model))
+    drawing.name = display_name(species, model)
+    drawing.species, drawing.model = species, model
+    drawing.label = default_label(species)
+    drawing.artist = PATCH_ARTIST
+    return drawing
 
 
 def import_bug(index):
@@ -236,9 +286,23 @@ def _forest_palette():
 
 def import_all():
     flowers = [import_flower(s, v) for s in SPECIES for v in (0, 1)]
+    patch = [import_patch_flower(s, v) for s, n in PATCH_FLOWERS.items() for v in range(n)
+             if patch_sprite(s, v) is not None]
     forest = [import_forest_prop(k, i) for k, n in FOREST for i in range(n)]
     bugs = [import_bug(i) for i in range(len(BUG_IDS))]
-    return flowers + forest + bugs
+    return flowers + patch + forest + bugs
+
+
+# The generator's empty pixel (`gen_objects.blank`): what a rendered grid holds
+# wherever nothing is drawn.
+CLEAR = (0, 0, 0, 0)
+
+
+def has_letters(drawing):
+    """Does any cell hold a palette letter? Asked of the DISTINCT cell values -
+    the union of the rows is built in C - so a 512-wide drawing answers in
+    milliseconds rather than a Python loop over a quarter of a million cells."""
+    return any(isinstance(v, str) for v in set().union(*drawing.cells))
 
 
 def render(drawing):
@@ -246,7 +310,20 @@ def render(drawing):
 
     This is `flower_variant()`'s body with the grid coming from the editor
     instead of `_FLOWER_BLOOMS`, so the preview cannot disagree with the export.
+
+    A drawing with no palette letter in it - every forest prop, every import,
+    everything painted in real colours - takes a shortcut (#v2.8.0). Rims only
+    ever grow around LETTER cells, so for such a drawing the generator's two
+    letter layers are empty grids that outline into nothing, and the
+    composite is the raw layer as it stands: each painted cell as it is, each
+    empty one fully transparent. That is computed here directly, in one pass
+    instead of five over the whole grid - the difference between a 512-wide
+    drawing repainting in a blink and in seconds, once the 64-cell cap went.
+    The byte-for-byte export tests of the shipped forest run through it.
     """
+    if not has_letters(drawing):
+        return [[cell if cell is not None and cell[3] != 0 else CLEAR for cell in row]
+                for row in drawing.cells]
     g = gen_objects()
     w, h = drawing.width, drawing.height
     colors = drawing.palette.colors()
@@ -279,15 +356,101 @@ def _scaled(drawing, scale):
     return gen_objects().upscale(render(drawing), scale)
 
 
-def export_png(drawing, path, scale=16, grid=None):
+def rgb_of(hexcol):
+    """'#a6e3a1' / 'A6E3A1' -> (166, 227, 161). One parser, so the exporters
+    and the background dialog can never disagree about a colour."""
+    h = str(hexcol).lstrip("#")
+    if len(h) != 6:
+        raise ExportRefused(f"not a six-digit hex colour: {hexcol!r}")
+    try:
+        return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    except ValueError:
+        raise ExportRefused(f"not a six-digit hex colour: {hexcol!r}") from None
+
+
+def flatten_onto(big, hexcol):
+    """`big` (an RGBA grid) composited over an opaque `hexcol` (#v2.8.0).
+
+    Straight source-over, so a half-transparent pixel blends rather than
+    snapping to either side — which is what makes a soft edge still look soft
+    on a white export. Every pixel comes out opaque; nothing in the grid is
+    see-through afterwards, which is the whole point of choosing a
+    background."""
+    br, bg_, bb = rgb_of(hexcol)
+    out = []
+    for row in big:
+        new_row = []
+        for px in row:
+            r, g, b, a = px if px else (0, 0, 0, 0)
+            if a >= 255:
+                new_row.append((r, g, b, 255))
+            elif a <= 0:
+                new_row.append((br, bg_, bb, 255))
+            else:
+                f = a / 255.0
+                new_row.append((round(r * f + br * (1 - f)),
+                                round(g * f + bg_ * (1 - f)),
+                                round(b * f + bb * (1 - f)), 255))
+        out.append(new_row)
+    return out
+
+
+def as_rgb(value, default=(255, 255, 255)):
+    """An RGB triple from a hex string, an (r, g, b) tuple, or None.
+
+    JPEG's background arrived as a tuple long before the artist could choose
+    one, and the dialog speaks hex; rather than make one of them convert at
+    every call site, both are accepted here."""
+    if value is None:
+        return default
+    if isinstance(value, (tuple, list)):
+        if len(value) < 3:
+            raise ExportRefused(f"not an r,g,b colour: {value!r}")
+        return tuple(int(n) for n in value[:3])
+    return rgb_of(value)
+
+
+def composed(drawing, scale=16, grid=None, background=None, mark=None):
+    """The exact RGBA grid an image export writes, at `scale` px per cell.
+
+    The one place the decisions are made in the right order: upscale,
+    flatten onto the background, draw the grid lines ON TOP so they keep
+    the colour they were asked for, and last of all the artist's signature,
+    over everything (`mark`, a `provenance.Mark`; #v2.8.0). `export_png` is
+    this plus a write, and the background dialog previews this at a smaller
+    scale (#v2.8.0) - so what the artist is shown cannot drift from what
+    lands on disk."""
+    big = _scaled(drawing, scale)
+    if background is not None:
+        big = flatten_onto(big, background)
+    if grid is not None:
+        big = with_grid_lines(big, scale, grid)
+    if mark is not None:
+        rects = provenance.stamp(len(big[0]), len(big), mark)
+        mark.signed = bool(rects)
+        big = provenance.apply(big, rects)
+    return big
+
+
+def export_png(drawing, path, scale=16, grid=None, background=None, mark=None):
     """An RGBA PNG at `scale` px per cell. `grid` (a hex colour) draws a
     one-pixel line along every cell boundary, the outer edge included — the
     "export with grid" the artists asked for (#v2.6.0), for sharing a
-    work-in-progress where the cells have to be countable."""
-    big = _scaled(drawing, scale)
-    if grid is not None:
-        big = with_grid_lines(big, scale, grid)
-    gen_objects().write_png(str(path), big)
+    work-in-progress where the cells have to be countable.
+
+    `background` is None for the transparent PNG this has always written, or
+    a hex colour the empty cells are flattened onto (#v2.8.0) — for the
+    artist who wants a white sheet rather than a checkerboard when the file
+    lands in a chat window. Flattened BEFORE the grid lines go on, so the
+    lines stay the colour they were asked for.
+
+    `mark` (#v2.8.0) signs the picture if it asks to, and writes what made
+    it - and, if the artist keeps their name in the file, the title, the
+    artist and the copyright line - into its text chunks and XMP."""
+    gen_objects().write_png(str(path), composed(drawing, scale, grid, background, mark))
+    if mark is not None:
+        written = Path(path)
+        written.write_bytes(provenance.png_with_metadata(written.read_bytes(), mark))
     return Path(path)
 
 
@@ -329,23 +492,38 @@ def suggested_sprite_name(drawing, ext="png"):
     """A default filename for `export_sprite`: the engine's own name when the
     drawing is a shipped species/prop/bug, else a slug of the artist's name."""
     if drawing.species and (is_forest(drawing.species) or drawing.species in SPECIES
-                            or drawing.species == BUG):
+                            or drawing.species in PATCH_FLOWERS or drawing.species == BUG):
         return engine_sprite_names(drawing)[0].rsplit(".", 1)[0] + f".{ext}"
     import re
     slug = re.sub(r"[^a-z0-9_-]+", "_", (drawing.name or "sprite").lower()).strip("_")
     return f"{slug or 'sprite'}.{ext}"
 
 
-def export_svg(drawing, path, cell=16, grid=None):
+def export_svg(drawing, path, cell=16, grid=None, background=None, mark=None):
     """The drawing as SVG: one `<rect>` per painted cell, `cell` units each,
     with `shape-rendering="crispEdges"` (#v2.7.0, item 4). Vector, so it
     stays sharp at any zoom in Illustrator, a browser, a chat preview.
-    `grid` (hex) adds one-unit lines on every cell boundary, border closed."""
+    `grid` (hex) adds one-unit lines on every cell boundary, border closed.
+
+    `background` is None for the transparent SVG (the default, unchanged) or
+    a hex colour laid down as one full-size rect underneath everything
+    (#v2.8.0). A rect rather than flattened pixels: the art stays editable
+    and a half-transparent cell still blends against it in any renderer.
+
+    `mark` (#v2.8.0): the title, the artist and the copyright line as
+    `<title>`, `<desc>` and Dublin Core metadata, and the signature, if one is
+    asked for, as a last group of rects over everything else."""
     rendered = render(drawing)
     h, w = len(rendered), len(rendered[0])
     W, H = w * cell, h * cell
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
            f'viewBox="0 0 {W} {H}" shape-rendering="crispEdges">']
+    if mark is not None:
+        out.append(provenance.svg_metadata(mark))
+    if background is not None:
+        br, bg_, bb = rgb_of(background)
+        out.append(f'<rect x="0" y="0" width="{W}" height="{H}" '
+                   f'fill="#{br:02x}{bg_:02x}{bb:02x}"/>')
     for r, row in enumerate(rendered):
         c = 0
         while c < w:
@@ -372,25 +550,46 @@ def export_svg(drawing, path, cell=16, grid=None):
             yy = min(y, H - 1)
             lines.append(f'<rect x="0" y="{yy}" width="{W}" height="1"/>')
         out.append(f'<g fill="{g}">' + "".join(lines) + "</g>")
+    if mark is not None:
+        rects = provenance.stamp(W, H, mark)
+        mark.signed = bool(rects)
+        if rects:
+            out.append(provenance.svg_signature(rects))
     out.append("</svg>")
     Path(path).write_text("\n".join(out), encoding="utf-8")
     return Path(path)
 
 
-def export_jpg(drawing, path, scale=16, background=(255, 255, 255)):
+def export_jpg(drawing, path, scale=16, background=(255, 255, 255), grid=None, mark=None):
     """JPEG has no alpha, so transparency is flattened onto `background`.
 
     The caller is told which colour that was rather than the app quietly
-    picking one and the artist finding a white halo later.
+    picking one and the artist finding a white halo later. `background` may be
+    a hex string or an (r, g, b) tuple, and None means white - there is no
+    transparent JPEG to fall back on (#v2.8.0). `grid` (hex) draws the cell
+    lines, so "export with grid" is offered for this format too.
+
+    `mark` (#v2.8.0): the signature, if asked for, and the name in EXIF
+    (Artist, Copyright, Windows' XPAuthor), XMP and a JPEG comment.
     """
     from PIL import Image
-    grid = _scaled(drawing, scale)
-    h, w = len(grid), len(grid[0])
+    rgb = as_rgb(background)
+    # Composed against the SAME background the flatten below uses, so a
+    # half-transparent pixel blends once, not twice.
+    cells = composed(drawing, scale, grid, "%02X%02X%02X" % rgb, mark)
+    h, w = len(cells), len(cells[0])
     rgba = Image.new("RGBA", (w, h))
-    rgba.putdata([px for row in grid for px in row])
-    flat = Image.new("RGB", (w, h), background)
+    rgba.putdata([px for row in cells for px in row])
+    flat = Image.new("RGB", (w, h), rgb)
     flat.paste(rgba, mask=rgba.split()[3])
-    flat.save(str(path), "JPEG", quality=95, subsampling=0)
+    named = mark is not None
+    buf = io.BytesIO()
+    extra = {"exif": provenance.exif_bytes(mark)} if named else {}
+    flat.save(buf, "JPEG", quality=95, subsampling=0, **extra)
+    data = buf.getvalue()
+    if named:
+        data = provenance.jpeg_with_metadata(data, mark)
+    Path(path).write_bytes(data)
     return Path(path)
 
 
@@ -405,6 +604,8 @@ def engine_sprite_names(drawing):
         # with no `flower_` prefix and no bare thumbnail (#v17's "only shadows"
         # bug was exactly that prefix being applied to a tree).
         return [f"{drawing.species}_{drawing.model:02d}.png"]
+    if PATCH_FLOWERS.get(drawing.species) == 1:
+        return [f"flower_{drawing.species}.png"]  # a single form: no model number
     names = [f"flower_{drawing.species}_{drawing.model}.png"]
     if drawing.model == 0:
         names.append(f"flower_{drawing.species}.png")

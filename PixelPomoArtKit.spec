@@ -13,6 +13,17 @@ if not os.path.exists(_GEN):
     raise SystemExit(f'gen_objects.py not found at {_GEN} — is the App folder '
                      f'still a sibling of ArtKit?')
 
+# Drawing Patch 1 (#v2.8.0): the game ships these as Mir's own PNGs, not as
+# generator output, so they travel with the kit the same way, into objects/
+# where `engine_io.patch_sprite` looks when frozen.
+_OBJECTS = os.path.normpath(os.path.join(os.path.dirname(_GEN), os.pardir, 'assets', 'objects'))
+_PATCH = [os.path.join(_OBJECTS, name) for name in (
+    'flower_anthurium.png', 'flower_pilea_0.png', 'flower_pilea_1.png',
+    'flower_sundew_0.png', 'flower_sundew_1.png')]
+_missing = [p for p in _PATCH if not os.path.exists(p)]
+if _missing:
+    raise SystemExit(f'Drawing Patch sprites not found: {_missing}')
+
 # The tomato-and-brush icon (#v2.4.0). Both files are generated from the same
 # 16x16 grid by `python -m art_kit.branding` and committed under assets/, so
 # the build needs nothing beyond the checkout. The window's own icon is drawn
@@ -25,12 +36,24 @@ from art_kit.version import VERSION as _VERSION  # noqa: E402
 _ICO = os.path.join(_ASSETS, 'icon.ico')
 _ICNS = os.path.join(_ASSETS, 'icon.icns')
 
+# A TEST build — `ARTKIT_TEST_BUILD=1 pyinstaller PixelPomoArtKit.spec` — is
+# the same kit under a different name, frozen from an entry point that makes
+# the updater inert (see run_art_kit_test.py for why a test binary must never
+# swap itself). One spec rather than a second copy, so the release recipe
+# cannot drift from the test one; the variable is unset in CI and everywhere
+# else, so `pyinstaller PixelPomoArtKit.spec` still builds exactly what it did.
+# The differing name also gives PyInstaller its own build/ workpath, so the two
+# builds do not overwrite each other's cache.
+_TEST = os.environ.get('ARTKIT_TEST_BUILD') == '1'
+_SCRIPT = 'run_art_kit_test.py' if _TEST else 'run_art_kit.py'
+_NAME = 'TestPixelPomoArtKit' if _TEST else 'PixelPomoArtKit'
+
 
 a = Analysis(
-    ['run_art_kit.py'],
+    [_SCRIPT],
     pathex=['.'],
     binaries=[],
-    datas=[(_GEN, '.')],
+    datas=[(_GEN, '.')] + [(p, 'objects') for p in _PATCH],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -47,7 +70,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='PixelPomoArtKit',
+    name=_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -70,7 +93,7 @@ exe = EXE(
 if sys.platform == 'darwin':
     app = BUNDLE(
         exe,
-        name='PixelPomoArtKit.app',
+        name=f'{_NAME}.app',
         icon=_ICNS,
         bundle_identifier='com.pixelpomo.artkit',
         info_plist={

@@ -6,7 +6,7 @@ can go back into `_FLOWER_BLOOMS`; one with a raw colour in it can still ship as
 a PNG. Keeping both in one grid means the free colour picker is not a second
 document format with its own bugs.
 """
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 LETTERS = "dmlCxSGko"
 BLOOM_LETTERS = "dmlCx"
@@ -62,23 +62,42 @@ class Drawing:
     # The artist's own tag — "flower", "tree", "wip", anything (#v2.6.0).
     # Free text, filterable in the library; nothing engine-side reads it.
     label: str = ""
+    # Who drew it (#v2.8.0): a layer of its own beside the label, so "tree"
+    # and "Mir" never compete for the one tag. Saved; empty until someone
+    # says. The library shows the initial in the artist's own colour.
+    artist: str = ""
+    # How far this session's LEFT and TOP edge drags have pushed the art
+    # right and down, in cells (#v2.8.0). Never saved and never compared: it
+    # travels with the undo snapshots only so that an undo putting those
+    # columns back can tell the window how far the art just moved, and the
+    # view can move with it instead of letting the drawing jump.
+    shift: tuple = field(default=(0, 0), compare=False, repr=False)
 
     @classmethod
-    def blank(cls, width, height, palette, name="untitled", species="", model=0, label=""):
+    def blank(cls, width, height, palette, name="untitled", species="", model=0, label="",
+              artist=""):
         cells = [[None] * width for _ in range(height)]
         return cls(name=name, species=species, model=model, cells=cells,
-                   palette=palette, label=label)
+                   palette=palette, label=label, artist=artist)
 
     def count(self):
-        """How many cells are painted."""
-        return sum(1 for row in self.cells for c in row if c is not None)
+        """How many cells are painted.
+
+        Counted with `list.count`, which runs in C (#v2.8.0): the strip under
+        the canvas asks on every mouse move, and once drawings could be
+        hundreds of cells wide a Python loop over all of them made the
+        pointer itself lag."""
+        return sum(len(row) - row.count(None) for row in self.cells)
 
     def empty_count(self):
         """How many cells are still empty (#v2.7.0, item 5)."""
         return self.width * self.height - self.count()
 
     def row_count(self, row):
-        return sum(1 for c in self.cells[row] if c is not None) if 0 <= row < self.height else 0
+        if not (0 <= row < self.height):
+            return 0
+        line = self.cells[row]
+        return len(line) - line.count(None)
 
     def col_count(self, col):
         if not (0 <= col < self.width):
@@ -159,16 +178,55 @@ class Drawing:
         flowers stay 16 wide; trees and pets to come get whatever they need."""
         cols, rows = max(1, cols), max(1, rows)
         for row in self.cells:
-            while len(row) < cols:
-                row.append(None)
+            row.extend([None] * (cols - len(row)))  # nothing when it is wide enough
             del row[cols:]
         while len(self.cells) < rows:
             self.cells.append([None] * cols)
         del self.cells[rows:]
 
+    def resize_edge(self, edge, delta):
+        """Move one EDGE of the grid by `delta` cells (#v2.8.0).
+
+        `resize` grows and crops at the right and the bottom, because that is
+        where a size dialog's width and height go. Dragging the LEFT edge is a
+        different thing: the cells that leave are the ones on the left, and
+        the art that stays does not move relative to the edge the artist is
+        not touching. A positive `delta` always grows.
+
+        Returns the number of cells actually moved - the grid never goes below
+        one cell on either axis, so a drag past that does nothing rather than
+        emptying the drawing."""
+        if edge not in ("left", "right", "top", "bottom"):
+            raise ValueError(f"edge must be left/right/top/bottom, got {edge!r}")
+        width, height = self.width, self.height
+        limit = (width if edge in ("left", "right") else height) - 1
+        delta = max(-limit, int(delta))
+        if delta == 0:
+            return 0
+        if edge == "right":
+            self.resize(width + delta, height)
+        elif edge == "bottom":
+            self.resize(width, height + delta)
+        elif edge == "left":
+            for row in self.cells:
+                if delta > 0:
+                    row[:0] = [None] * delta
+                else:
+                    del row[:-delta]
+            self.shift = (self.shift[0] + delta, self.shift[1])
+        else:  # top
+            if delta > 0:
+                self.cells[:0] = [[None] * width for _ in range(delta)]
+            else:
+                del self.cells[:-delta]
+            self.shift = (self.shift[0], self.shift[1] + delta)
+        return delta
+
     def is_letters(self):
-        return all(c is None or isinstance(c, str)
-                   for row in self.cells for c in row)
+        """No raw colour anywhere. Asked of the DISTINCT cell values - the
+        union of the rows is built in C - since a blank 2000-cell square is
+        four million Nones, and every autosave asks (#v2.8.0)."""
+        return all(v is None or isinstance(v, str) for v in set().union(*self.cells))
 
     @property
     def kind(self):
@@ -184,10 +242,37 @@ class Drawing:
 class History:
     """Undo/redo over whole-grid snapshots, one entry per STROKE.
 
-    A 16x19 grid is 304 cells — snapshotting it is nothing next to the cost of
+    A 16x19 grid is 304 cells - snapshotting it is nothing next to the cost of
     getting a diff-based stack subtly wrong, and a wrong undo loses the artist's
     work. Snapshots it is.
+
+    Entries are `(kind, value)`, oldest first, and there is ONE stack, not one
+    per kind (#v2.8.0). Up to #v2.7.0 the window kept the zoom's undo in a
+    separate list that `undo()` drained FIRST, so a corner-drag from ten
+    strokes ago jumped the queue and Ctrl+Z gave back a zoom level instead of
+    the last thing painted. Interleaving them is the only way the stack can
+    mean "what happened, backwards":
+
+    * `("cells", snapshot)` - the grid before a stroke. History owns these:
+      it swaps `.current` itself.
+    * any other kind - a piece of state the WINDOW owns, carried here only so
+      it takes its turn in the right order. History never interprets the
+      value; it hands the old one back and stores the current one, which the
+      caller supplies, for redo. `("grid", ...)` and `("bar", ...)` are the
+      two the kit uses (#v2.8.0): the checkerboard tones and the symmetry
+      line. Changing a grid colour and pressing Ctrl+Z has to undo the grid
+      colour, not the last brush stroke.
     """
+
+    CELLS = "cells"
+    # How many cells the undo stack's snapshots may hold between them
+    # (#v2.8.0). Two hundred snapshots of a 64x64 tree are under a million;
+    # with the size cap gone, two hundred of a 1024-wide drawing would be two
+    # hundred million, and the machine would run out of memory long before
+    # the artist ran out of strokes. Past the budget the OLDEST steps go, the
+    # way the entry limit already drops them - a big drawing simply keeps a
+    # shorter memory. Never the newest step.
+    CELL_BUDGET = 24_000_000
 
     def __init__(self, drawing, limit=200):
         self.current = drawing
@@ -200,13 +285,61 @@ class History:
         self._pending = self.current.copy()
 
     def end_stroke(self):
+        """Close the open stroke. Returns True if it changed anything and so
+        became an undo entry - callers that pair a stroke with something else
+        need to know whether one was recorded."""
         if self._pending is None:
-            return
+            return False
         before, self._pending = self._pending, None
         if before.cells == self.current.cells:
-            return  # nothing actually moved
-        self._undo.append(before)
+            return False  # nothing actually moved
+        self._push((self.CELLS, before))
+        return True
+
+    def abort_stroke(self):
+        """Throw away a stroke that was begun and never ended, putting the
+        drawing back to how it was when it started (#v2.8.0).
+
+        For an edit the artist walks away from half-done - a lifted block
+        dropped with Ctrl+Z before it lands. It leaves NO undo entry, because
+        the edit never became one. Returns True if there was a stroke open."""
+        if self._pending is None:
+            return False
+        self.current, self._pending = self._pending, None
+        return True
+
+    def has_pending(self):
+        return self._pending is not None
+
+    def last_kind(self):
+        """The kind of the newest undo entry, or None."""
+        return self._undo[-1][0] if self._undo else None
+
+    def drop_last(self, kind):
+        """Remove the entry just pushed, for a change that turned out not to
+        change anything. Cheaper and clearer than deciding in advance what a
+        setter is going to do with its arguments."""
+        if self._undo and self._undo[-1][0] == kind:
+            self._undo.pop()
+            return True
+        return False
+
+    def push_state(self, kind, value):
+        """Record a change to something the window owns, in the same timeline
+        as the strokes. `kind` is anything but CELLS; `value` is how it was
+        BEFORE the change."""
+        if kind == self.CELLS:
+            raise ValueError("cells entries come from end_stroke()")
+        self._push((kind, value))
+
+    def _push(self, entry):
+        self._undo.append(entry)
         del self._undo[:-self._limit]
+        held = sum(v.width * v.height for k, v in self._undo if k == self.CELLS)
+        while held > self.CELL_BUDGET and len(self._undo) > 1:
+            kind, value = self._undo.pop(0)
+            if kind == self.CELLS:
+                held -= value.width * value.height
         self._redo.clear()
 
     def can_undo(self):
@@ -219,19 +352,33 @@ class History:
         """A palette edit is not a stroke: apply it to the live drawing AND
         every snapshot, so an undo never silently reverts the colours."""
         self.current.palette = palette
-        for snap in self._undo + self._redo:
-            snap.palette = palette
+        for kind, value in self._undo + self._redo:
+            if kind == self.CELLS:
+                value.palette = palette
         if self._pending is not None:
             self._pending.palette = palette
 
-    def undo(self):
-        if not self._undo:
-            return
-        self._redo.append(self.current.copy())
-        self.current = self._undo.pop()
+    def undo(self, current=None):
+        """Step back one entry.
 
-    def redo(self):
-        if not self._redo:
-            return
-        self._undo.append(self.current.copy())
-        self.current = self._redo.pop()
+        Returns `(kind, value)`: `("cells", None)` once `.current` has been
+        swapped for the older grid, or `(kind, old_value)` for a piece of
+        state the CALLER must restore - history does not own the window.
+        None if there is nothing left. `current` maps those kinds to their
+        value right now, so redo has something to come back to."""
+        return self._step(self._undo, self._redo, current)
+
+    def redo(self, current=None):
+        """The mirror of `undo`, with the same return shape."""
+        return self._step(self._redo, self._undo, current)
+
+    def _step(self, source, target, current):
+        if not source:
+            return None
+        kind, value = source.pop()
+        if kind == self.CELLS:
+            target.append((self.CELLS, self.current.copy()))
+            self.current = value
+            return (self.CELLS, None)
+        target.append((kind, (current or {}).get(kind)))
+        return (kind, value)

@@ -4,6 +4,463 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.8.0 (in progress) — ninth test pass: a ruled guide, drawn arrows, names renamed and taken off, white and black grounds
+**Date:** 2026-09-23 · not tagged yet
+
+Prompt (verbatim):
+
+> guide kisminda her bölüm cizgi ile ayrilsin aralardaki mesafe korunsun ve basliklar sola dogru entegre olsun,ALL
+> yanindaki ücgen asagi dogru okay ama yana dogru degil normal halde birde guide kapatirken ki x kösede pikselli
+> duruyor büyüt ve saga endeksle scroll down ,upin hizasina, onun disinda alttaki sag sol oku pikselli duruyor,
+> empty  ve pixelsin in basina total pikseli de yazalim , mirmiri Ola Górecka  olarak degistireli, Heroyu
+> HeroDev999 yapalim,artistlerin adini degistime ve silme opsiyonu gelsin ,ayni sekilde labellarda da , label ve
+> artist ekle bölümünde üc nokta olsun oradan labellar cikarilsin , LadyOfDynamite ismi yeni artist olarak
+> eklensin, grid kisminda colour 1 ve 2 üc nokta hizasina cekilsin ayni sekilde alttaki renk menüsü de
+> kenarlardan kisaltilsin esit olsun bos olan yere iki tane hazir stil gelsin Üste White , Alta Black, hazir grid
+> ayari direk,iki renk direk siyah veya direk beyaz olsun , test art kite ekledim sanatcilara
+
+- **The guide, ruled.** A hairline between one row and the next, the rows' own
+  spacing kept round it; each heading flush left over an accent line; the
+  sub-rows no longer indented by two spaces. The ▾ ALL row still described the
+  sixth pass's filter - it describes the one checklist now.
+- **Drawn, not typed: the arrows and the ×.** `theme.icon` draws a triangle or
+  an X at four times its size and averages it down, so the slanted edges are
+  smooth: the ALL arrow (the font's ▶ could come out as an emoji, bigger than
+  the ▼ beside it), the colour strip's pager (a canvas polygon has no
+  antialiasing on Windows), and the guide's close button - bigger, its right
+  edge on the scrollbar's.
+- **Total pixels** first under the canvas: `total · empty · pixels`; the
+  cursor readout's "empty" is translated too.
+- **Artists and labels, renamed or taken off everywhere**: a ⋮ beside every
+  name in the label and the artist dialogs - Rename… (every drawing that
+  carries it, the ticks and, for an artist, the colour following) and Delete
+  (asked first; the drawings stay, the label or artist comes off them, an
+  artist's colour is given back). The Drawing Patch 1 flowers are signed
+  **Ola Górecka** now (was Mir); the artist had already renamed Mir and Hero
+  (HeroDev999) and added LadyOfDynamite in the test kit.
+- **The grid's ready grounds**: WHITE over BLACK between DEFAULT and the
+  fields, each making both tones white or both black - a plain ground to judge
+  the art on - with the cell lines darkened on a light ground rather than
+  lightened into it. Each colour's name sits right beside its …, and the two
+  fields are the same width.
+- **One width down the tools pane.** Rows stretched into the room a hidden
+  scrollbar leaves and ran 14 px past the colour grids and the colour panel,
+  which cannot stretch. Every row is INNER_W now, centred with even margins
+  while the bar is hidden, the block at the bottom lined up under it.
+
+364 tests, all passing (was 356).
+
+---
+
+## v2.8.0 (in progress) — eighth test pass: dialogs in place, symmetry per drawing, LOOK, GUIDE
+**Date:** 2026-09-23 · not tagged yet
+
+Prompt (verbatim):
+
+> grid colour1 ve 2 de üc noktaya basinca sol üstten bir menü anlik gözüküp kayiyor,birde symmetry bazen mirror ve
+> stick acik kaliyor farkli bir ekrana gecince yani semaya böyle alanin disinda kalmis sekilde görebiliyoruz, onun
+> olmasinin önüne gecelim, onun disinda birde help kisminda en altta copyright önlemlerinin nasil calistiginin
+> neyin ne oldugunu anlatan bir kisim ekleyelim, Helpin adi Guide olsun, birde squint görüntüsü var arkadaki
+> tasarim tamamen yok oluyor bu ,  sagina check Look ekleyelim orada cizim kapali olsun sadece bakma icin olsun
+> orasi, oraya tiklayinca iste oradan sekilin nasil calistigina bakmis olacagiz nasil göründügüne
+
+- **No window in the corner first.** `theme.dark_title_bar` runs
+  `update_idletasks`, which mapped every new dialog where Windows puts a new
+  window - the top-left of the screen - before `run` moved it to its place:
+  the grid colour picker (…), and the export, label, artist and size dialogs
+  the same way. `theme.unseen` maps a dialog see-through (alpha 0) until it is
+  placed, and `theme.reveal` shows it there; alpha rather than withdraw, since
+  the dark title needs the window mapped - and an override-redirect menu, once
+  measured while withdrawn, is never shown again by Tk. Menus go the same way.
+- **Symmetry belongs to the drawing.** The mode and the line were the kit's, so
+  they followed the artist into the next drawing, the line off its edge when
+  that one was smaller. Each drawing now keeps its own (`_sym_frames`, like
+  LOCK's frames): it comes back with its line, a drawing never given one opens
+  OFF, and a line the drawing shrank away from - a resize, an undo - is taken
+  off, the mode waiting for a click to place it again (`_keep_bar_inside`).
+- **LOOK**, beside squint: the canvas shows the drawing as it looks - the empty
+  cells in the canvas's own colour instead of the checkerboard, no cell lines,
+  no symmetry line, no eraser outline - and nothing is drawn, erased, resized,
+  cut, pasted or undone while it is ticked; a press says why, as LOCK's refusals
+  do. Zoom, pan and the eyedropper still work.
+- **GUIDE** (was HELP), in the four languages: GUIDE / REHBER / POMOC / HILFE on
+  the button (the box is pinned to the English word, and PRZEWODNIK or
+  ANLEITUNG would not fit it at any size), guide / rehber / przewodnik /
+  Anleitung in its title. It ends with **how the work is protected** - what the
+  corner and the watermark are, the name in the file, "made with", the export
+  log and the fingerprint it keeps, why engine sprites stay clean, C2PA later -
+  in the language chosen, where the rows above it are still English.
+
+356 tests, all passing (was 352).
+
+---
+
+## v2.8.0 (in progress) — seventh test pass: one checklist, both marks, every corner translated, an eraser that keeps up
+**Date:** 2026-09-23 · not tagged yet
+
+Prompt (verbatim):
+
+> simdi copyright yaparken ikisini de yapma olsun, onun disinda snapshot sadece test modunda olsun, test
+> özelliginde olsun, 160x60 actim orada snapshotu görebilirsin, ve all sectim hepsi tikli sonrasinda no artisti
+> sectim kapanmak yerine diger sanatcilari siliyor, birde mesela hero sectim tikladim yukarda all tiki gitmis ama
+> diger herseyin tiki gözüküyor bu sacma, ben hangiseyin tikini sectiysem onlar gözüksün, hero secebilirim ve hero
+> sadece 2 tane otheri vardir sonrasinda yukaridan othera basarim ve bir tane daha tüm otherlar ve digerleri
+> gözülür , bu arada every export is also written down in export-log.jsonl dedigin kisimda tikli olsun, yani
+> kullaniciya kalsin tercih, birde su uygulamadan yapildi diye propertylere ekleyelim, ekleyebiliyorsak yada meta
+> dataya ekleyelim, symmetry, squint, colour, ready colours, favourite colours, ink, kaydetin yanindaki durum
+> raporlari, yenicizime basincaki kisimlar, soldaki üc noktali menü ve uzantilari  farkli dillerde calismiyor,
+> birde 5 numarada önerdigin sertifika isini ilerde yapilacaklar kismina ekle, piksel pomo projesinin overview
+> kismina ve pixel pomo art kiti de güncelle orada , eraser calisirken bug var söyle cok fps düsüyor gibi
+> optimizasyon sorunu var gecikmeli geliyor , onun disinda altta pikselleri sag sol yapan kisimda sag sol en
+> sagda olsun ve biraz daha belirgin olsun bir tik daha büyük , son olarak all kisminda, allun yanindaki ikon
+> biraz daha net olsun yana dogru all'a dogru olsun basinca asagi döndürsün yönünü, birde sag üstte durum
+> raporunda anlik raporda bazen metinin hepsi görünmüyor metin uzun kaliyor kutuya onu da düzeltelim
+
+The artist's three F12 snapshots (the first ones this kit has sent back) showed
+FIT right at 2x - a 160-wide drawing in a 455-px pane, where 3x would be 480 -
+the filter's menu mid-state, and the status corner cutting "exported
+House3.png" to "rted House3.png".
+
+- **One checklist.** Labels and artists were two filters combined with AND,
+  each with its own ALL: an artist picked from ALL left every label ticked above
+  a list of one artist's work, and NO ARTIST picked from ALL unticked the other
+  artists while every label stayed ticked. Now one set of ticks over both, and
+  a drawing is listed if its label OR its artist is ticked - "whatever I tick
+  is what shows": Hero lists Hero's two; OTHER after it adds every other OTHER
+  ("bir tane daha"). From ALL a click ticks just that row; ticks are always
+  exactly what is listed. The arrow is a clearer ▶ at the words, turning ▼
+  while the list is open.
+- **Both marks.** CORNER and WATERMARK are two switches now, either, neither or
+  both (the watermark laid first, the corner on top). The record is a tick too,
+  on by default, the artist's to turn off. And every image export says what
+  made it: Software "Pixel Pomo Art Kit" (Explorer's Program name), comment
+  "Made with Pixel Pomo Art Kit", and an SVG opens with it - whatever the
+  artist chose about their own name.
+- **F12 is the TEST build's.** Not bound, and not in HELP, in a release.
+- **Every corner in four languages.** The tools pane's headings (Ink,
+  Favourite colours, Ready colours, Colour, Symmetry, squint) were built once in
+  the starting language and never re-texted; the status messages, the new
+  drawing and resize dialogs (presets included), the label and artist dialogs,
+  rename, delete, import, the favourites menu, the update and save dialogs and
+  the startup messages were English outright; the row ⋮ menus were fixed at
+  build time. All of it is in the four tables now (173 keys each, placeholders
+  checked), and a row menu reads its labels when it opens. The HELP body is
+  still English.
+- **The eraser.** Each erased cell was a canvas rectangle of its own, and the
+  whole 16 × 16 footprint was re-erased and re-drawn at every step, cells long
+  empty included: one stroke across the 160 × 60 left 38,562 items on the canvas,
+  all redrawn on every move. Now only cells that held something are erased, and
+  each lands in the view's own picture (`PhotoImage.put`, in C): 18.8 ms a step
+  → 2.6 ms (worst 49 → 8), 2 canvas items instead of 38,562, release 51 → 23 ms.
+  Painting goes the same way.
+- **The colour pager** sits at the strip's far right as two solid triangles,
+  a size up, where it had trailed the last colour as two thin brackets.
+- **The status corner** is as wide as its message (a very long one is cut in
+  the middle, at 48 characters), where a fixed 14 characters cut off the start.
+- The Pixel Pomo overview (Overview/generate.py) has a **Later** list, with
+  Content Credentials (C2PA) signing for exports on it, and its Art Kit card,
+  mind-map branch and module notes follow the kit as it is now.
+
+352 tests, all passing (was 340).
+
+---
+
+## v2.8.0 (in progress) — sixth test pass: the artist's mark on exports, F12, one artist at a time, a fit that holds, the 2 × 2 board back
+**Date:** 2026-09-23 · not tagged yet
+
+Prompt (verbatim):
+
+> 1, 2 ve 4'ü ekle, F12 kısayolunu da yap birde arkadaki gridlerin 2x2 2x2 den farkli bir sekle gecmis
+> eski versiyonlarla karsilastirinca onu da düzeltelim, birde sadece mir diyorum gözükmüyor ikinci bir
+> artist de ekledim sadece onu secsemde olmuyor karisiyorlar birbirlerine , fit halen düzgün degil mesela
+> 160x60li untitledte yapiyorum görebilirsin
+
+"1, 2 and 4" are three of the five layers proposed for protecting the artists'
+work: the name inside the file, the name on the picture, and a record of every
+export (not taken: an invisible LSB mark, and C2PA signing).
+
+- **The artist's mark (`provenance.py`).** The export dialog asks, under the
+  background: a signature on the picture — NONE, CORNER ("© 2026 MIR" in the
+  kit's own pixel letters, light with a dark rim, about a twentieth of the
+  picture's shorter side) or WATERMARK (the same, faint, in staggered rows over
+  the whole picture) — and ☑ name and © inside the file. Both remembered, like
+  the background. Drawn into the file's own pixels, previewed, stepping down to
+  a shorter form when the name does not fit, refused (with the way to fix it)
+  when the drawing has no artist. Inside the file: PNG tEXt/iTXt and XMP, JPEG
+  EXIF (ASCII fields folded to plain letters, XPAuthor/XPTitle in UTF-16 with
+  the name as written) plus XMP and a comment, SVG title/desc/Dublin Core.
+  The engine sprite stays clean, on purpose.
+- **`export-log.jsonl`.** Every export, engine sprites and JSON included: time,
+  file, SHA-256, drawing, size, artist, the drawing file's own SHA-256, how it
+  was marked, and the export id its XMP carries. Each line holds the digest of
+  the one before; `provenance.verify` finds the first link that no longer
+  matches.
+- **F12, a snapshot.** The window as it is on screen (a dialog or menu over it
+  included), cut from a screen grab at the window's real-pixel bounds from the
+  compositor — Tk's own coordinates are scaled on a 125/150 % display and would
+  crop the wrong rectangle — plus a JSON of what the view was: zoom, fit zoom,
+  pane, camera origin and scroll region, visible cells, the drawing, the
+  filters. Into `snapshots/` in the data folder. With no screen to grab the
+  JSON is still written and says why.
+- **"sadece Mir diyorum gözükmüyor ... karışıyorlar".** Three faults. A label
+  still ticked from before (OTHER) and Mir's flowers made "only Mir" an empty
+  list: a click that would list nothing only because of the other group now
+  clears that group. A click on a second artist ADDED them to the first: the
+  artist group is one artist at a time now (a click on the one shown lists
+  every artist again). And a row that came back was packed at the END of the
+  list, so every filter change shuffled it: rows out of order are put back in
+  the library's order.
+- **The checkerboard, 2 × 2 again.** Every version drew ten squares a side of
+  whatever the drawing was; the viewport renderer (fourth pass) put the board
+  into the art tile cut to whole cells, and ten into 16 cells came out 2, 2, 1,
+  2, 1… wide — ten into a 160 × 60 banner, as 16 × 6 slabs. Now every square is
+  2 × 2 cells on every drawing, doubling while it would be under 4 px on
+  screen (1x: 4 cells; 1/n x: exactly 4 px of blocks). The board is in the
+  tile only; the 100 checker items under it are gone.
+- **FIT that holds.** Simulated on the 160 × 60 in every camera mode, after
+  extreme zooms and pans: FIT itself fitted and centred every time. What was
+  not right is what happened NEXT — fold the library with ☰ and the art sat
+  off-centre in the wider pane; unfold it and a fit made for the wide pane ran
+  off the narrow one. A fitted view now follows the pane until the artist
+  zooms or pans. Below 1x, the free camera's one-cell rule kept a third of a
+  pixel on screen — none, once floored; it keeps a whole pixel now. If FIT is
+  still wrong after this, an F12 of it will show exactly how.
+- The startup messages (migration, refused folder, unreadable files) use the
+  kit's own boxes, like every other popup.
+- `build_test.ps1` builds with `--clean`. With nothing changed since the last
+  build, PyInstaller judged the .exe up to date and never wrote it, and the
+  script reported that as a file held open.
+
+340 tests, all passing (was 312).
+
+---
+
+## v2.8.0 (in progress) — fifth test pass: the eraser's outline, the artist layer, Drawing Patch 1, big drawings that keep up
+**Date:** 2026-09-23 · not tagged yet
+
+Prompt (verbatim):
+
+> elektron testi tarzi testler yapip canli bakma sansin yok mu ?, birde 1,2,3 düzgün calisiyor eline saglik, birde
+> simdi symmetry de stick yerine gerceklestirecegimiz yeni metodu aciklayacagim , ilk olarak silgiye basinca
+> kayboluyor silmeye devam ediyor ama kaybolmasini istemiyorum, yada silginin yarisi alanin disina cikinca
+> silginin cizgisinin takilmasini engelleyelim birde fit kismi cok büyüklerde calismiyor birde üc noktalara
+> artist ekleyelim bu artist labeli olacak, ve exportlarda artist bookmarki ayari istiyorum yapabilecegimiz
+> kadar yapalim ki eserlerin calinmasini istemem , bunun icin mümkün metodlari arastirip uygulamaya eklemeden
+> önce önerini sun onun disinda diger kisimlari ekleyelim ,artistlerin labeli farkli bir katman olsun üc
+> nokta ile normal labellarin arasindaki kisimda olsun artistlerin bas harfi olsun sadece buradaki farklilik
+> her artist icin random farkli bir renk atansin, ve en son pixel pomo sürümünde eklenen 5 model de pixel pomo
+> art kite eklensin artiste mir yazalim , birde sol üstte artiste göre filtreleme olsun all icinde
+
+- **The eraser's outline stays with it.** It was skipped while erasing, so it vanished
+  when erasing began - or, until a repaint, stayed stuck where the stroke started.
+  `_draw_ghost` draws it on every step of a stroke and after every repaint. An eraser
+  whose footprint still covers the drawing is erasing wherever the pointer is: no edge
+  grab (half of it past the edge used to catch on the resize band), and a press with
+  the pointer beyond the edge erases the border cells under it.
+- **FIT on a very big drawing.** It chose the right zoom, but took seconds - 7.6 s on a
+  4096-cell square - turning the same millions of cells into pixels again for each
+  picture. `_rendered_image` renders the open drawing once per change (a Pillow image,
+  keyed on a content version every change bumps, mid-stroke too); the zoomed-out view
+  (`_tile_image`), both corner pictures and the thumbnail crop and average it in C.
+  FIT: 0.20 s at 4096², 0.07 s at 2000². A new 4096² drawing: 1.96 s, was 27.9 - a
+  blank one skips rendering altogether, `is_letters` asks the distinct values not every
+  cell, a letter row is joined in C, and `store.dumps` writes one ROW a line instead of
+  one number a line (37 MB for a 2000² square; a letter file is byte for byte as before).
+- **The artist, a layer of its own.** `Drawing.artist` (saved; files before it read as
+  none). ⋮ → Artist… (the label dialog's other kind). On the row, between the label
+  chip and ⋮, the artist's initial in that artist's own colour - random for each new
+  artist, as far as possible in hue from the ones already given out, and kept in the
+  settings. The ▾ ALL checklist has an ARTISTS group, each row in its artist's colour;
+  it combines with the labels (flowers by Mir), and a new drawing or import joins the
+  ticked artists the way it joins the ticked labels.
+- **Drawing Patch 1.** The game's #v36.1 ships anthurium, pilea and sundew as the PNGs
+  Mir drew, not generator output. The kit reads them from flutter/assets/objects (and
+  bundles them for a build with no checkout), brings them back to their 16 × 16 cells,
+  labels them flowers and signs them Mir. A library from before gets them on its next
+  start (`seed_missing_kinds`). Exported, each is the shipped sprite pixel for pixel;
+  anthurium, the single form, exports as `flower_anthurium.png` with no model number.
+- Not yet, on purpose: the artist mark in exports (a proposal first, as asked), and the
+  method replacing STICK (to be described).
+
+312 tests, all passing (was 299).
+
+---
+
+## v2.8.0 (in progress) — fourth test pass: below 1x, corner pictures that keep every cell, a clean fold
+**Date:** 2026-09-23 · not tagged yet
+
+Prompt (verbatim):
+
+> simdi 1px e aliniyor current ama yandaki squint ve 1/11x cok dogru degiil yani hassas degil aktariken buglar
+> oluyor ve bazi kisimlar aktarilmamis birde söyle bir problem var mesela 600 ve 600 yaptik sag altta 1/10x e
+> kadar squinte kadar kücülme hakki olsun geriye gidince ana ekranda cünkü ana ekranda 1x oluyor yani sag
+> alttaki en kücük kisma kadar kücülme olsun hep, ve üc cizgiye basip paneli kapatip acarken takilmalar bazi
+> parcalarin sanki kesiliyormus ve geri birlesiyormus gibi imaji veriyor özellikle üst menüde , birde soldaki
+> gene üc cizgiye basinca altindaki scroll down ,up kismi yok olmuyor bunun cözülmesi lazim
+
+- **Corner pictures that keep every cell.** The 1/n x preview, the squint and the
+  library thumbnail of a big drawing kept every n-th cell and dropped the rest, so a
+  line one cell thin was in them or not by where it fell. `raster.reduce` averages each
+  n × n block instead (a box filter - Pillow in C, the same sum by hand without it),
+  premultiplied so a half-covered block is half as opaque rather than darkened;
+  `raster.over` / `on_colour` mix such a pixel with the background it sits on.
+- **Below 1x.** A 600-wide drawing stopped at 1 px a cell while the corner showed it at
+  1/10x; the view now goes down to that same 1/n x (`min_zoom`: the longer side over the
+  1x box, rounded up) - 1x as before for anything the box holds. `ZOOM_OUT_STOPS`
+  1/64 … 1/2 join the ladder, with the drawing's own floor always on it; `fit_zoom`
+  gives the largest 1/n that fits a drawing bigger than the pane. The zoom is an exact
+  `Fraction` down there (in floating point 3 // 0.1 is 29, and the pointer would paint
+  the wrong cell); every coordinate that reaches Tk is turned into a number Tk can read,
+  since a Fraction would arrive as the string "7/2". At 1/n the view renders the visible
+  cells, averages n × n blocks and lays them on the checker (`_tile(..., n)`); the
+  readout says `1/10 px`, and a pan or an autoscroll is at least one pixel.
+- **A clean fold.** The ☰ slid the whole canvas pane 200 px and Windows repainted it
+  widget by widget - the camera strip visibly cut apart and joined back.
+  `theme.held_paint` holds the window's painting (WM_SETREDRAW) while the layout, the
+  strip's scrollbar and the drawing settle, then shows the result in one frame. The
+  list's scrollbar now leaves the rail with the list, and comes back under the ☰.
+
+299 tests, all passing (was 289). New: the view zooming out to the corner's 1/10x and
+no further, with exact pixel-to-cell arithmetic; fit below 1x and nothing fractional
+reaching Tk; the zoomed-out view equal to each block's average on the checker; a
+one-cell line kept by the 1/10x and squint pictures; the fold taking the scrollbar
+with it; `raster.reduce` (a thin line, half coverage, cut-short blocks, Pillow and the
+hand-made sum agreeing once laid on the background) and `raster.over`.
+
+---
+
+## v2.8.0 (in progress) — third test pass: a steady LOCK, a label checklist, edges out of the way, no size cap
+**Date:** 2026-09-23 · not tagged yet
+
+Prompt (verbatim):
+
+> simdi   3. Kilitliyken sol kenardan büyüt, ardından Ctrl+Z yap. bunu yaptim calisiyor, kilitliyken
+> yakinlastirma yaparken lock isareti yanip sönüyor, cakisiyor gibi ,soldaki labellarda label isimlerinin
+> yaninda tik olsun all olunca hepsi tikli ama onun disinda birkacina tiklayip sadece birkacinin gözükmesinin
+> isteyebilirim,24x den itibaren kücülünce kenarlarda cizmek zorlasiyor büyütme kisimi cakisiyor onun daha
+> hassaslastirilmasi lazim ic taraftan, birde en fazla 64x64 yapabiliyoruz o limiti tamamen kaldiralim,
+> tamamen custom yapalim
+
+- **LOCK, steadily.** The LOCK button no longer blinks on a refused notch - under a
+  spinning wheel it read as LOCK and the zoom fighting. The corner still says *camera
+  locked*, and holds it: `_set_status` keeps ONE pending fade now, so a message repeated
+  faster than it fades stops flickering (and an old fade can no longer dim an error that
+  replaced it).
+- **The labels are a checklist.** The filter is a set of labels (None is ALL). ▾ ALL
+  opens ☑ / ☐ rows (`PopupMenu.add_checkbutton`): under ALL every label is ticked; a click
+  from there lists just that label, further clicks tick more on or off, and the list
+  stays open while they do. Nothing ticked, or everything, is ALL. The button reads
+  `BUSH + TREE · 30`, or `3 LABELS · 44` when the names do not fit. A new drawing takes
+  the filtered label when there is exactly one; a new drawing or an import the filter
+  would hide adds its label to the ticked ones instead of wiping the filter.
+- **Edges out of the way.** The grab band was 10 px either side of an edge - 40% of an
+  edge cell at 24 px a cell, all of it at 8. Outside the art it still is 10 px; inside
+  it is an eighth of a cell, never more than 3 px (`EDGE_GRAB_INSIDE`), and nothing at
+  all below 8 px a cell.
+- **No size cap.** New drawing and Size take any width × height. Past 512 × 512 the
+  dialog asks first (`BIG_CELLS`); more than 4096 a side is refused as the typo it is
+  (`HUGE_SIDE`), since 60000 for 600 would take the window down. The eraser keeps its
+  own 64 (`ERASER_MAX`). What makes a big drawing workable rather than frozen:
+  - the main view renders only the visible cells plus a one-cell margin (`_tile`) and
+    lays them on the checker itself, so the image is opaque - Tk's transparency mask for
+    scattered pixel art took over a second on a 256-cell square, opaque it is 2 ms;
+  - `engine_io.render` takes a shortcut for a drawing with no palette letter - exactly
+    the generator's answer (asserted for every seeded drawing and a random 300 × 200
+    one), about twelve times faster;
+  - thumbnails and previews shrink to their boxes (`raster.shrink`; the 1x caption then
+    says 1/2x, 1/3x…) and sit baked onto their background;
+  - one full render per stroke instead of three; the pixel totals counted once per
+    change, not on every mouse move; the colour strip counted in C; `png_bytes` packs a
+    row without holes in one call; `store.to_dict` leaves colour tuples to `json.dumps`
+    (the same file, byte for byte);
+  - the undo stack holds at most `History.CELL_BUDGET` (24 million) cells of snapshots,
+    so a big drawing keeps a shorter undo memory instead of eating the machine's.
+  - Measured (scattered pixel art, 900 × 800 pane, fitted): 256² stroke end 0.11 s,
+    repaint 0.06 s; 512² 0.30 s / 0.19 s; 1024² 1.5 s / 0.65 s; a pointer move at most
+    0.3 ms at every size.
+- HELP and README follow: the checklist, any size, the grab outside the edge.
+
+289 tests, all passing (was 276). New: the checklist (toggle rules, the menu staying
+open, ticks re-read in place), the imported drawing's label joining the filter, the edge
+band inside and out at five zooms, any size and the eraser's own limit, the Size
+dialog's question and refusal, previews and thumbnails of a big drawing, the visible
+tile equal to the whole render cut to the view (rims included), the steady status
+under a spinning wheel; the render shortcut against the generator, `raster.shrink`,
+`png_bytes` either way, the undo cell budget, and the saved file unchanged by the
+tuple shortcut.
+
+---
+
+## v2.8.0 (in progress) — second test pass: LOCK holds the whole camera, the kit's own popups
+**Date:** 2026-09-23 · not tagged yet
+
+Prompt (verbatim):
+
+> üc cizgi fit in hizasinda degil veya allin, onun disinda lock kismi sabitliyor ama zoom out yapilabiliyor
+> olmamasi lazim, yani lock halinde kamera acisi sabit olmasi lazim, icon copy adini icon yaptim, lock
+> tamamen düzgün calismis olmasi lazim , mesela isim sec diyorum, cikan menü gri kirmizi klasik menü yada
+> renk sec diyorum gridin oradada klasik menü tüm popup menülerinin hepsi görsel stil olarak uygulamaya uygun
+> olsun
+
+- **☰ on the ALL / FIT line.** The library's ☰ had no top margin while ALL and the
+  camera strip (FIT) had `PAD`; it now gets the same `pady=(PAD, 4)` and the same
+  button height (`pady=4`) - all three are 23 px tall, 8 px from the top.
+- **LOCK holds the camera - all of it.** Every other mode leaves the zoom free, as before.
+  - The wheel, `+`/`-`, FIT, Shift+wheel, Space+drag, the middle button and the
+    scrollbars leave the zoom and the view alone (`_camera_frozen()`), and a stroke
+    dragged against the pane's edge no longer autoscrolls - it used to repaint the
+    whole view on every motion event with nothing able to move.
+  - Anything aimed at the camera blinks the LOCK button and says *camera locked* in
+    the status corner; FIT is dimmed while locked. A dead wheel with no word of
+    explanation reads as a frozen app.
+  - Each drawing keeps its own frozen view while LOCK stays on (`_lock_frames`): lock
+    A, look at B (fitted, centred, frozen), come back to A exactly as it was left.
+    Leaving LOCK forgets them all.
+  - Starting up in LOCK freezes the fitted, centred view, not the canvas origin -
+    which pinned the art to the pane's top-left corner.
+  - A left or top edge drag moves the frozen point with the art: held still, the art
+    jumped a cell for every cell added while the grabbed edge stayed put. Undoing or
+    redoing that drag keeps the art still too, in every mode - `Drawing.shift`
+    (session only, never saved) records how far left/top edge changes pushed the art,
+    and `_follow_shift` moves the view by as much. Before, an undone left-edge grow
+    jumped the drawing sideways; under LOCK there was no way to pan it back.
+  - The one re-frame: a shrink (the Size dialog, a smaller window) that leaves none
+    of the drawing inside the frozen view fits and centres it again, still locked.
+- **The kit's own popups.** New `art_kit/dialogs.py`:
+  - `PopupMenu` for the filter, row ⋮, favourite and language menus: the row about to
+    run wears the accent, the arrow keys / Enter / Esc work, it opens upwards instead
+    of off the bottom of the screen (and never over the button it drops from), and it
+    stays on the monitor it was opened on.
+  - `showinfo` / `showwarning` / `showerror` / `askyesno` / `askstring` in MATCHA
+    colours with the call shapes of the modules they replace; a coloured strip marks
+    a warning or an error, and Delete's question is a warning.
+  - The grid's `…` opens `ColourDialog` (the kit's hue strip + shade square) instead of
+    the Windows colour chooser. The checkerboard follows it live, CANCEL puts it
+    back, OK is one undo step however far the picker travelled.
+  - `theme.setup` no longer styles `tk.Menu`: there is none left. New i18n keys
+    `ok` / `yes` / `no` / `cam_locked` in all four languages.
+  - Native on purpose: the file picker behind IMPORT PNG and the exports - it is
+    Explorer's own window (Quick Access, search, OneDrive), and a Tk copy would be a
+    worse tool in a nicer colour.
+- HELP no longer describes the corner zoom this version replaced; it has the camera
+  strip, LOCK and panning instead. README likewise.
+- "icon copy" → "icon" was the artist's rename (in the test library's copy - the real
+  library still says "icon copy"); nothing to change in code.
+
+Process note: the first half of this round was written by the Lea shadow run, which
+does not stay in its sandbox for a project outside the workspace - it edited this
+repository directly, and rebuilt `dist\PixelPomoArtKit.exe` from unreleased code. That
+work was reviewed, kept and finished in the main session.
+
+276 tests, all passing (was 261). New: LOCK freezing the zoom, swallowing every pan
+and saying why, dimming FIT, a frozen view per drawing, starting up in LOCK, re-framing
+only a lost drawing, the locked left-edge drag and its undo; the popup's placement and
+keyboard, the message boxes' answers, `ColourDialog`, the grid picker's live preview;
+`Drawing.shift`; and `test_no_native_menu_or_dialog_is_left`. The row-menu tests read
+`PopupMenu.labels()`; the every-mode zoom tests skip LOCK.
+
+---
+
 ## v2.7.0 — update relaunch, SVG, languages, stick/mirror lines, bugs, corner zoom
 **Date:** 2026-09-18
 

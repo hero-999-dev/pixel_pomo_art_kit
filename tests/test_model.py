@@ -106,6 +106,24 @@ class LabelAndBlocksTest(unittest.TestCase):
         self.assertEqual(d.copy().label, "wip")
         self.assertEqual(Drawing.blank(2, 2, PAL, label="tree").label, "tree")
 
+    def test_the_left_and_top_edges_record_how_far_the_art_moved(self):
+        """#v2.8.0: `shift` is how the window keeps the art still when an
+        undo takes back columns a left-edge drag added. Only the left and the
+        top move the art; it rides along in the undo snapshots; it is never
+        written to the file and never makes two drawings unequal."""
+        from art_kit import store
+        d = Drawing.blank(4, 4, PAL)
+        self.assertEqual(d.shift, (0, 0))
+        d.resize_edge("left", 2)
+        d.resize_edge("top", -1)
+        d.resize_edge("right", 3)
+        d.resize_edge("bottom", 1)
+        self.assertEqual(d.shift, (2, -1))
+        self.assertEqual(d.copy().shift, (2, -1))
+        self.assertNotIn("shift", store.to_dict(d))
+        self.assertEqual(d, Drawing(name=d.name, species=d.species, model=d.model,
+                                    cells=[list(r) for r in d.cells], palette=PAL))
+
     def test_counts_total_row_and_column(self):
         d = Drawing.blank(4, 3, PAL)
         for c in range(3):
@@ -150,6 +168,21 @@ class LabelAndBlocksTest(unittest.TestCase):
 
 
 class HistoryTest(unittest.TestCase):
+    def test_a_big_drawing_keeps_a_shorter_undo_memory_rather_than_all_of_it(self):
+        """#v2.8.0: with no size cap, two hundred snapshots of a big drawing
+        would fill the machine. Past CELL_BUDGET the oldest steps go - never
+        the newest."""
+        h = History(Drawing.blank(100, 100, PAL))               # 10 000 cells a snapshot
+        h.CELL_BUDGET = 50_000
+        for i in range(12):
+            h.begin_stroke()
+            h.current.paint(i, 0, "m")
+            h.end_stroke()
+        self.assertEqual(len(h._undo), 5, "five snapshots fill 50 000 cells")
+        h.undo()
+        self.assertIsNone(h.current.get(11, 0), "the newest stroke is still undoable")
+        self.assertEqual(h.current.get(10, 0), "m")
+
     def setUp(self):
         self.h = History(Drawing.blank(4, 3, PAL))
 

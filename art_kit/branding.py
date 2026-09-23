@@ -4,30 +4,54 @@ Defined as a letter grid here, the way the game's own sprites are, so the
 window icon is built at run time with no image file to bundle, and the
 .ico / .icns the installers carry are generated from the same grid by
 `python -m art_kit.branding` (needs Pillow) into `assets/`.
+
+The grid itself is drawn in the kit - the app's own icon is a Pixel Pomo
+drawing, exported and pasted in here, which is the point.
 """
 from pathlib import Path
 
 from art_kit.raster import photo
 
-# 16x16. The tomato is the app icon's, cell for cell; the brush stands to
-# its right, tip dipped in the matcha accent.
+# 32x32, drawn in the kit itself and exported from it (#v2.8.0, was 16x16).
+# The tomato is the app icon's, cell for cell; the brush stands to its right,
+# tip dipped in the matcha accent. Twice the grid, so the tomato carries its
+# highlight and its underside at a size the taskbar can actually show - at 16
+# they were one pixel each and the icon read as a red blob.
+#
+# The letters are the same eight the 16x16 used, so COLOURS below is unchanged.
 ICON = [
-    "................",
-    "....GG......HH..",
-    "..GGGGGG....HH..",
-    ".RRRRRRRR...HH..",
-    "RRLLRRRRRR..HH..",
-    "RRLLRRRRRR..HH..",
-    "RRRRRRRRRR..HH..",
-    "RRRRRRRRRR..HH..",
-    "RRRRRRRRRR.FFFF.",
-    "RRRRRRRRRR.FFFF.",
-    "RRRRRRRRRR.BBBB.",
-    ".DDDDDDDD..BBBB.",
-    "...........BBBB.",
-    "...........AAAA.",
-    "............AA..",
-    "................",
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    ".........GGGG............HHHH...",
+    ".........GGGG............HHHH...",
+    ".....GGGGGGGGGGGG........HHHH...",
+    ".....GGGGGGGGGGGG........HHHH...",
+    "...RRRRRRRRRRRRRRRRR.....HHHH...",
+    "...RRRRRRRRRRRRRRRRR.....HHHH...",
+    ".RRRRLLLLRRRRRRRRRRRR....HHHH...",
+    ".RRRRLLLLRRRRRRRRRRRR....HHHH...",
+    ".RRRRLLLLRRRRRRRRRRRR....HHHH...",
+    ".RRRRLLLLRRRRRRRRRRRR....HHHH...",
+    ".RRRRRRRRRRRRRRRRRRRR..FFFFFFFF.",
+    ".RRRRRRRRRRRRRRRRRRRR..FFFFFFFF.",
+    ".RRRRRRRRRRRRRRRRRRRR..FFFFFFFF.",
+    ".RRRRRRRRRRRRRRRRRRRR..FFFFFFFF.",
+    ".RRRRRRRRRRRRRRRRRRRR..BBBBBBBB.",
+    ".RRRRRRRRRRRRRRRRRRRR..BBBBBBBB.",
+    ".RRRRRRRRRRRRRRRRRRRR..BBBBBBBB.",
+    ".RRRRRRRRRRRRRRRRRRRR..BBBBBBBB.",
+    ".RRRRRRRRRRRRRRRRRRRR..AAAAAAAA.",
+    ".RRRRRRRRRRRRRRRRRRRR..AAAAAAAA.",
+    "...DDDDDDDDDDDDDDDDD.....AAAA...",
+    "...DDDDDDDDDDDDDDDDD.....AAAA...",
+    "................................",
+    "................................",
+    "................................",
+    "................................",
+    "................................",
 ]
 
 COLOURS = {
@@ -83,7 +107,10 @@ def write_icon_files(out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def render(grid, size):
-        img = Image.new("RGBA", (16, 16))
+        # From the grid's own dimensions: ICON was 16x16 and is 32x32 now, and
+        # a literal here would have silently cropped it to the top-left corner.
+        h, w = len(grid), len(grid[0])
+        img = Image.new("RGBA", (w, h))
         img.putdata([px if px else (0, 0, 0, 0) for row in grid for px in row])
         return img.resize((size, size), Image.NEAREST)
 

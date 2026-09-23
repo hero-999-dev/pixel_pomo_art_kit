@@ -39,11 +39,11 @@ that, so they are kept in a per-user folder the program only points at:
 | Windows | `%LOCALAPPDATA%\PixelPomoArtKit\` (e.g. `C:\Users\you\AppData\Local\PixelPomoArtKit\`) |
 | macOS | `~/Documents/PixelPomoArtKit/` |
 
-HELP shows the folder and has an **OPEN FOLDER** button. Up to v2.4.0 the
+GUIDE shows the folder and has an **OPEN FOLDER** button. Up to v2.4.0 the
 Windows build wrote beside the .exe; the first run of v2.5.0 finds that old
 `library/` and copies (never moves) its drawings over, then tells you.
 
-**UPDATE** (next to HELP) asks GitHub for the latest release. A newer one turns
+**UPDATE** (next to GUIDE) asks GitHub for the latest release. A newer one turns
 the button into `UPDATE ● vX.Y.Z` (a fresh build also checks once, quietly, on
 start). On **Windows** the kit downloads the new .exe, **zips the library to
 `backups/library-before-<version>-<date>.zip` first**, closes, swaps itself and
@@ -128,7 +128,10 @@ Requirements:
 On first run the app creates a `library/` folder (next to `art_kit/` when run
 from source; see the table above for the builds) and seeds
 it with everything the game ships, read live from `gen_objects.py` — not copied
-in: the **24 flowers** (12 species, 2 hand-authored models each) and the whole
+in: the **24 flowers** (12 species, 2 hand-authored models each), the five
+**Drawing Patch 1** houseplants Ola Górecka drew (anthurium, pilea ×2, sundew ×2 — read
+from the PNGs the game ships, since they are not generator output, and signed
+with her name as their artist), and the whole
 **forest** — 20 trees, 10 bushes, 5 rocks (#v34.8).
 
 Forest props are raw pixel art: no letter palette, no automatic rim, so what you
@@ -148,17 +151,35 @@ Three panes, left to right, in the game's **matcha** theme (the tones are
 `PixelTheme.matcha` from the app itself, so the kit and the game look like one
 product — dark title bar on Windows included):
 
-- **Library.** `▾ ALL · 59` at the top filters by **label**. Below, one row
+- **Library.** `▶ ALL · 59` at the top is **one checklist** of every label
+  and, under **ARTISTS**, every artist (each in their colour), "no label" and
+  "no artist" included; its arrow points at the words and turns down while the
+  list is open. What is ticked is what is listed: a drawing shows if its label
+  **or** its artist is ticked, so Hero, then OTHER, is Hero's drawings and
+  every OTHER one besides. Under ALL every row is ticked; from there a click
+  ticks just that row, and each click after it ticks one on or off (the list
+  stays open while you tick); nothing ticked, or ALL, lists everything. The
+  rows always stay in the library's order. Below, one row
   per drawing: a small thumbnail (rendered the same way the canvas is), the
   name, the label chip (click it to change the label — the shipped drawings
   start as `flower` / `tree` / `bush` / `rock`, imports as `import`, and you
-  can type anything), and a `⋮` menu — Duplicate, Export PNG…, Export PNG
-  with grid…, Export JPG…, Export engine sprite…, Rename…, Label…, Size…,
-  Delete. Clicking a row opens it in the canvas.
+  can type anything — and a `⋮` beside each name in the label dialog renames that
+  label, or takes it off, on every drawing at once), the **artist's initial** in that artist's own colour
+  (the artist dialog has the same `⋮` for each artist, their colour following a rename) —
+  a layer of its own beside the label, picked at random for each new artist and
+  kept, so two artists who share a letter still differ — and a `⋮` menu — Duplicate, Export PNG…, Export PNG
+  with grid…, Export JPG…, Export engine sprite…, Rename…, Label…, Artist…,
+  Size…, Delete. Clicking a row opens it in the canvas. Every menu and message box
+  in the kit is drawn in its own matcha colours (arrow keys and Enter work in
+  the menus too); the one window that stays Windows' own is the file picker
+  behind IMPORT and the exports.
   `+ NEW DRAWING` (or `Ctrl+N`) opens a **size dialog**: the sizes the garden
   actually uses — Flower 16×15, Bush and Rock 16×16, Tree 32/48/64 for 2/3/4
-  tiles, all read from the engine, not typed in — or a custom width × height
-  up to 64. **IMPORT PNG…** below it brings outside art in (Procreate, Aseprite,
+  tiles, all read from the engine, not typed in — or **any** custom width ×
+  height (there is no 64-cell cap any more; past 512 × 512 the dialog asks
+  first, because every stroke re-renders and saves the whole grid and a
+  drawing that big is slower, and more than 4096 a side is refused as the typo
+  it is). **IMPORT PNG…** below it brings outside art in (Procreate, Aseprite,
   anything): colour profile converted to sRGB, anti-aliasing snapped, x16
   exports scaled back down — several files at once, each **saved into the
   library immediately**, with a summary of what was changed or refused.
@@ -167,13 +188,28 @@ product — dark title bar on Windows included):
   fast drags are interpolated, so a quick stroke is a continuous line, not a
   trail of dots, and **what you paint is exactly what appears**: one click,
   one square. **Right-click is an eyedropper**: the cell under the cursor
-  becomes the ink. The mouse wheel (or `+`/`-`) zooms from 4x to 48x, with
-  scrollbars so the edge pixels stay reachable at any zoom — and dragging
+  becomes the ink. The mouse wheel (or `+`/`-`) zooms about the pointer, up
+  to 1024 px a cell and down to 1x — or, for a drawing too big for the
+  corner's 1x box, down to that box's own 1/n x (1/10 px a cell for a
+  600-wide drawing), where every screen pixel is the average of the cells it
+  covers. Scrollbars keep the edge pixels reachable at any zoom — and dragging
   against the edge of what you can see scrolls that way, one cell at a time;
-  empty cells show a checkerboard in your two grid colours; cell lines appear
+  `Space`+drag or the middle button pans. **The strip over the canvas** is the
+  camera: FIT (which holds: fold the library away or resize the window and the
+  drawing is fitted again, until you zoom or pan yourself), FREE, the corner /
+  side / centre arrows, and **LOCK**, which
+  freezes the view exactly as it is framed — zoom *and* position. Under LOCK
+  the wheel, `+`/`-`, FIT and panning do nothing (the corner says *camera
+  locked*); each drawing keeps its own frozen view until another mode is
+  picked. **Drag an edge or a corner** of the drawing to add or take away
+  rows and columns on that side — the grab lies just outside the edge, only a
+  sliver inside it, so painting the border cells never turns into a resize;
+  empty cells show a checkerboard of 2 × 2-cell squares in your two grid
+  colours (never smaller than 4 px on screen, so zoomed far out the squares
+  grow rather than blur); cell lines appear
   once each cell is 8px or larger (WITH / WITHOUT GRID turns them off). A
   one-pixel line runs the full height between the canvas and the tools.
-  **Under the canvas:** `pixels N` plus the count in the row and column under
+  **Under the canvas:** `total N · empty N · pixels N` plus the count in the row and column under
   the cursor (or in the selection), the drawing's colours left to right —
   most-used first, with code and count, click one to use it — and the cell
   and colour under the cursor.
@@ -193,8 +229,13 @@ product — dark title bar on Windows included):
     never destroys anything: it drops a floating block where it is, then
     clears the selection.
   - **Grid** — `colour 1` / `colour 2`, the two checkerboard tones behind the
-    art: type a code and Enter, `…` opens a colour picker, DEFAULT restores
-    the matcha tones.
+    art, each name right beside its `…`: type a code and Enter, or `…` for the
+    kit's own colour picker — the grid follows it live while it is open,
+    CANCEL puts it back and OK is one undo step. DEFAULT restores the matcha
+    tones; **WHITE** and **BLACK** (stacked between DEFAULT and the fields)
+    make both tones white or both black, a plain ground to judge the art on,
+    with the cell lines turned darker or lighter to stay visible. Every row
+    of the tools pane is as wide as the colour grids, with even margins.
   - **The ink**, shown as its bare `#rrggbb` code on a swatch of itself.
     Click it and type a new code (Enter applies, Esc cancels); double-click
     selects the whole code to copy; `+` adds it to your favourites.
@@ -206,7 +247,10 @@ product — dark title bar on Windows included):
     it: a hue strip over a shade square, click or drag. Exactly as wide as
     the swatch grids above it, edge to edge.
   - **Symmetry** — three modes (`m` cycles them), a direction `│ 90°` /
-    `─ 180°`, and a length:
+    `─ 180°`, and a length. Each drawing keeps its own: the line stays with
+    the drawing it was placed on and comes back with it, a drawing never
+    given one opens with symmetry OFF, and a line the drawing shrank away
+    from is taken off rather than left outside the art:
     - **OFF** — plain painting.
     - **MIRROR** — a bar stands on the canvas, `length` cells long, centred
       where you click; a ghost follows the cursor until you do. Anything
@@ -223,16 +267,27 @@ product — dark title bar on Windows included):
   - **WITH GRID / WITHOUT GRID** — the cell lines over the drawing.
   - **Bottom-right corner:** the two live previews — **1x** actual size and a
     fixed **squint**-test scale, both rendered through the same engine code
-    as every export — the drawing's **W × H** (click it to resize; one undo
-    step), **UPDATE** (see above), and **HELP**, which lays every button and
-    key over the window, names the folder your drawings are in, and closes
+    as every export — with **☐ LOOK** beside squint: ticked, the canvas shows
+    the drawing as it looks (no checkerboard, no cell lines, no symmetry line)
+    and nothing is drawn, erased or resized on it until it is unticked; zoom,
+    pan and the eyedropper still work. Then the drawing's **W × H** (click it
+    to resize; one undo step), **UPDATE** (see above), and **GUIDE** (was
+    HELP), which lays every button and key over the window, ends with how
+    your work is protected, names the folder your drawings are in, and closes
     with `×`, `Esc` or `F1`.
 
 Keyboard: `Ctrl+S` save, `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo,
 `Ctrl+N` new drawing, `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy / cut / paste the
 selection, `Enter` drop a floating block, `Delete` clear the selection, arrow
 keys nudge the block, `b` / `e` / `f` / `s` draw/erase/fill/select, `m`
-symmetry OFF → MIRROR → STICK, `+` / `-` zoom, `F1` help. On macOS `Cmd` works everywhere `Ctrl` does, and
+symmetry OFF → MIRROR → STICK, `+` / `-` zoom, `F1` help, and — in the TEST
+build only — `F12`, a snapshot (the window as it is, plus the zoom, pane,
+camera and drawing behind it, saved as `snapshots/snap-<time>.png` and `.json`
+in the data folder, for showing what went wrong). Every heading, menu, dialog
+and message follows LANGUAGE — English, Türkçe, Polski, Deutsch — except the
+GUIDE's own rows, which are still English — its last part, how your work is
+protected, follows the language too. Every dialog opens where it belongs,
+rather than in the screen's top-left corner first. On macOS `Cmd` works everywhere `Ctrl` does, and
 right-click is also Control-click. The title bar always names the drawing you
 are editing.
 
@@ -247,12 +302,52 @@ drawing touched in the session before quitting.
 | **Export PNG with grid…** | The same, with a one-pixel line on every cell boundary, the outer border closed on all four sides. | Work in progress where the cells have to be countable. |
 | **Export JPG…** | The same render flattened onto white (JPEG has no alpha channel, so transparency has to become some solid colour — the underlying `export_jpg` takes the background as an explicit argument, the window just always calls it with the white default today). | Quick previews outside the game; never for shipping, since the transparency is gone. |
 | **Export engine sprite…** | The x16 engine-scale RGBA sprite of **any** drawing at **any** size, to a file **you name** in one ordinary save dialog (the default name is the engine's own — `flower_lale_1.png`, `tree_07.png` — for a shipped species or prop, else a slug of the drawing's name). Replacing an existing file is the system's own question; there is no second confirmation and no 16-wide refusal any more (#v2.6.0). The dialog opens on the kit's `exports/` folder — never the game's asset tree. | **Hand this back to the developer**, who sizes and names it for the garden if it isn't already. The strict, engine-checked writer (`export_engine_sprite`: engine names, engine sizes, refusals) still exists in code for that step. |
+
+### The artist's mark on exports
+
+Nothing can stop a picture on a screen from being copied, so the kit does not
+pretend to. What it does is make the artist's name travel with the file, make
+removing it a deliberate act, and keep the proof of who made what, and when.
+The export dialog asks, under the background question:
+
+- **Signature** — the name *on* the picture, two switches that go on and off
+  independently, so either, neither or both: **CORNER** ("© 2026 MIR" small in
+  the bottom-right corner, in the kit's own pixel letters, light with a dark
+  rim so it reads on any background) and **WATERMARK** (the same, faint and
+  repeated across the whole picture — a proof to share; with both, the corner
+  lies on top). It is drawn into the file's own pixels, so a screenshot keeps
+  it, and the preview shows it.
+  A drawing with no artist cannot be signed (`⋮ → Artist…` first); a picture
+  too small for the letters is left unsigned and says so; a long name steps
+  down to a shorter form (no year, first name, initials).
+- **☑ Name and © inside the file** (on by default) — PNG text chunks
+  (Title, Author, Copyright, Description, Software, Creation Time) plus XMP;
+  JPEG EXIF (Artist, Copyright, ImageDescription and the XPAuthor/XPTitle
+  Windows' Properties window shows, with the name exactly as written) plus XMP
+  and a comment; SVG `<title>`, `<desc>` and Dublin Core metadata. Social
+  networks strip this; files sent directly, or downloaded, keep it.
+- **☑ Write every export down in export-log.jsonl** (on by default) — see
+  below; the artist's to turn off.
+
+Whatever is chosen, every image export says what made it: *Pixel Pomo Art Kit*
+as the Software (Explorer's **Program name**) and *Made with Pixel Pomo Art
+Kit* as the comment (an SVG opens with it as an XML comment).
+
+And every export — PNG, SVG, JPG, JSON, engine sprite — is written down in
+**`export-log.jsonl`** in the data folder: the time, the file and its
+SHA-256, the drawing, its size and artist, the SHA-256 of the drawing's own
+file, how it was signed, and an export id that the file's XMP carries too.
+Each line holds the SHA-256 of the line before it, so a line edited or removed
+afterwards breaks the chain from there on (`provenance.verify`).
+
+The engine sprite stays clean — no signature, no text chunks: it is the game's
+build input, compared pixel for pixel with what the generator makes.
 ## Sending a drawing back (for the artist)
 
 Two easy ways, pick either:
 
 - **The lossless one (best):** send the drawing's `.json` file from the
-  `library\` folder (HELP → OPEN FOLDER) — it is the drawing itself, nothing
+  `library\` folder (GUIDE → OPEN FOLDER) — it is the drawing itself, nothing
   lost.
 - **The visual one:** `⋮ → Export PNG…` (or `Export engine sprite…` for the
   x16 file, named as you like) and send that.
@@ -286,9 +381,53 @@ draws it at run time (title bar, Dock); `python -m art_kit.branding` renders
 `assets/icon.png`, `icon.ico` (the .exe) and `icon.icns` (the .app) from the
 same grid, and both release zips carry `icon.png`.
 
+## Trying a version before releasing it
+
+`TestPixelPomoArtKit.exe` is the pre-release channel: the build that runs code
+which has not been pushed or released yet, so a version can be lived with
+before it becomes the download everyone else gets.
+
+```powershell
+.\build_test.ps1          # -> dist\TestPixelPomoArtKit.exe
+```
+
+Edit, rebuild, double-click, repeat. It differs from the release build in
+three ways and nothing else (`run_art_kit_test.py` has the full argument):
+
+| | release | test |
+|---|---|---|
+| updater | checks GitHub on start, swaps its own .exe | inert — never dials out, never swaps itself |
+| drawings | `%LOCALAPPDATA%\PixelPomoArtKit\` | `…\PixelPomoArtKit-Test\`, re-seeded from a **copy** of the real library on every start |
+| title | `Pixel Pomo Art Kit — rose` | `… — rose  [TEST]` |
+
+The copy is one-way by construction: new drawings made in the real kit show up
+in the test folder next time, and nothing written while testing unreleased
+code can travel back. That matters because `store.Library` keeps only a
+one-deep, per-session `.bak` — a corruption noticed one session late is
+otherwise unrecoverable. `tests/test_test_build.py` asserts all of it.
+
+The test build must never self-update, and not only to stay off the network:
+`updater.stage_windows()` unpacks the release's `PixelPomoArtKit.exe` and the
+hand-off script moves it over `sys.executable`, which here would leave a
+*release* binary wearing the test name.
+
+**When the version is good**, release it the normal way — bump `VERSION` in
+`art_kit/version.py`, commit, then push the tag. The `v*` tag is what triggers
+`.github/workflows/release.yml`; pushing `main` alone publishes nothing.
+
+```powershell
+git commit -am "v2.8.0: ..."
+git tag -a v2.8.0 -m "v2.8.0"     # -a matters: --follow-tags pushes
+git push origin main --follow-tags  # annotated tags only, and a
+                                    # lightweight tag would never reach CI
+```
+
+CI then builds Windows and both macOS binaries from that tag and publishes all
+three to the release. Only after that does anyone's UPDATE button see v2.8.0.
+
 ## Tests
 
-168 tests, all passing:
+364 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

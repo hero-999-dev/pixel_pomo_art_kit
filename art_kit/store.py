@@ -20,20 +20,29 @@ class CorruptDrawing(Exception):
     """A file that cannot be turned back into a drawing."""
 
 
+# A letter drawing's cell -> its character in the file.
+_AS_CHAR = {None: ".", **{letter: letter for letter in LETTERS}}
+
+
 def to_dict(drawing):
-    if drawing.is_letters():
-        cells = ["".join(c if c else "." for c in row) for row in drawing.cells]
+    letters = drawing.is_letters()  # once: `kind` below would ask again
+    if letters:
+        cells = ["".join(map(_AS_CHAR.__getitem__, row)) for row in drawing.cells]
     else:
-        cells = [[list(c) if isinstance(c, tuple) else c for c in row]
-                 for row in drawing.cells]
+        # The colour tuples stay tuples: `json.dumps` writes a tuple exactly
+        # as it writes a list, so the file is the same text, without a Python
+        # pass over every cell first - on each autosave of a drawing that can
+        # be hundreds of cells wide now (#v2.8.0).
+        cells = [list(row) for row in drawing.cells]
     return {
         "format": FORMAT,
         "name": drawing.name,
         "species": drawing.species,
         "model": drawing.model,
-        "kind": drawing.kind,
+        "kind": "letters" if letters else "pixels",
         "palette": asdict(drawing.palette),
         "label": drawing.label,
+        "artist": drawing.artist,
         "cells": cells,
     }
 
@@ -68,7 +77,7 @@ def from_dict(data):
                         if c not in LETTERS:
                             raise CorruptDrawing(f"unknown letter {c!r} in a cell")
                         out.append(c)
-                    elif (isinstance(c, list) and len(c) == 4
+                    elif (isinstance(c, (list, tuple)) and len(c) == 4
                           and all(isinstance(n, int) for n in c)):
                         out.append(tuple(c))
                     else:
@@ -91,8 +100,31 @@ def from_dict(data):
     label = data.get("label", "")
     if not isinstance(label, str):
         label = ""
+    # Likewise the artist (#v2.8.0), which no file before it has.
+    artist = data.get("artist", "")
+    if not isinstance(artist, str):
+        artist = ""
     return Drawing(name=name, species=species, model=model, cells=cells,
-                   palette=palette, label=label.strip())
+                   palette=palette, label=label.strip(), artist=artist.strip())
+
+
+def dumps(data):
+    """A drawing's dict as JSON text: `indent=1` for the fields, and the cells
+    ONE ROW A LINE (#v2.8.0).
+
+    Plain `indent=1` put every number of every colour on a line of its own,
+    six lines a cell: a 2000-cell-square drawing wrote 37 MB on every stroke's
+    autosave, most of it newlines. A row a line is the same JSON - `load`
+    reads either - still readable and diffable, and half the size; a letter
+    drawing, whose rows were already one string each, comes out byte for byte
+    as before."""
+    marker = "\\u0000cells\\u0000"
+    text = json.dumps(dict(data, cells=marker), indent=1)
+    rows = ",\n  ".join(json.dumps(row, separators=(",", ":")) for row in data["cells"])
+    # "cells" is the last field, so its marker is the LAST match - a name
+    # that happened to spell it out could not be the one replaced.
+    head, _marker, tail = text.rpartition(json.dumps(marker))
+    return head + "[\n  " + rows + "\n ]" + tail
 
 
 def save(drawing, path):
@@ -107,7 +139,7 @@ def save(drawing, path):
     lose the artist's last-saved copy for nothing.
     """
     path = Path(path)
-    text = json.dumps(to_dict(drawing), indent=1)
+    text = dumps(to_dict(drawing))
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
@@ -153,9 +185,20 @@ class Library:
             self._paths[id(drawing)] = path
         return skipped
 
+    def path_for(self, drawing):
+        """The JSON file this drawing is saved in, or None if it has none yet.
+
+        By `id()`, like every other lookup here: two value-equal drawings must
+        not resolve to one file (see `remove`)."""
+        return self._paths.get(id(drawing))
+
     def labels(self):
         """Every distinct label in use, sorted, empties left out."""
         return sorted({d.label for d in self.drawings if d.label})
+
+    def artists(self):
+        """Every distinct artist named, sorted, empties left out (#v2.8.0)."""
+        return sorted({d.artist for d in self.drawings if d.artist}, key=str.lower)
 
     def _free_path(self, drawing):
         base = _slug(f"{drawing.species}_{drawing.model}_{drawing.name}")

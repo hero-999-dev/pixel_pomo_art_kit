@@ -30,8 +30,22 @@ def program_dir():
     return Path(__file__).resolve().parent.parent
 
 
+DATA_ENV = "ARTKIT_DATA"
+
+
 def data_dir():
-    """The per-user folder the drawings live in. See the module docstring."""
+    """The per-user folder the drawings live in. See the module docstring.
+
+    `ARTKIT_DATA` overrides it outright (#v2.8.0). Windows answers
+    "%LOCALAPPDATA%" with the folder of whoever RAN the program, not the
+    folder beside it - so the same .exe, double-clicked from two accounts on
+    one machine, keeps two libraries and the artist finds their work in a
+    profile they did not expect. That is the correct default and it stays;
+    this is the way to pin it to one folder when one person is both accounts.
+    """
+    override = os.environ.get(DATA_ENV)
+    if override:
+        return Path(override)
     if not getattr(sys, "frozen", False):
         return program_dir()
     if sys.platform == "darwin":
@@ -102,3 +116,33 @@ def open_in_file_manager(folder):
         return True
     except OSError:
         return False
+
+
+def reveal(path):
+    """Show `path`'s FILE to the artist, selected in the file manager.
+
+    Not the same as `open_in_file_manager`, which opens a folder: this one
+    highlights one file inside it (#v2.8.0), so "open file location" lands on
+    the drawing the artist asked about rather than on a folder of forty JSONs
+    they then have to read. Falls back to opening the containing folder where
+    the platform has no select-a-file gesture, and returns False only when
+    even that failed."""
+    path = Path(path)
+    folder = path.parent
+    if not path.exists():
+        return open_in_file_manager(folder) if folder.is_dir() else False
+    try:
+        if sys.platform.startswith("win"):
+            import subprocess
+            # /select, takes the path as ONE argument with no space after the
+            # comma; explorer returns 1 even when it worked, so the exit code
+            # is deliberately not checked.
+            subprocess.Popen(["explorer", f"/select,{os.path.normpath(str(path))}"])
+            return True
+        if sys.platform == "darwin":
+            import subprocess
+            subprocess.Popen(["open", "-R", str(path)])
+            return True
+    except OSError:
+        return open_in_file_manager(folder)
+    return open_in_file_manager(folder)  # Linux: no standard "reveal"

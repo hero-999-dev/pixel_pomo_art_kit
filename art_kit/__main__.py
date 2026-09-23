@@ -4,6 +4,7 @@ from pathlib import Path
 
 from art_kit import paths, store
 from art_kit.app import ArtKitApp, base_dir, fallback_dir
+from art_kit.i18n import t
 from art_kit.settings import Settings
 from art_kit.version import VERSION
 
@@ -50,25 +51,16 @@ def main():
     root.geometry("1280x820")
     root.minsize(980, 640)
     ArtKitApp(root, library, settings)
-    from tkinter import messagebox
+    # The kit's own message boxes, like every other popup in it (#v2.8.0).
+    from art_kit import dialogs as messagebox
     if migrated:
-        messagebox.showinfo(
-            "Pixel Pomo Art Kit",
-            f"Pixel Pomo Art Kit v{VERSION} keeps your drawings in\n{data}\n\n"
-            f"{migrated} drawing(s) from the old folder next to the program were copied "
-            f"there. The old folder was left as it was. You can now move or replace the "
-            f"program freely — the drawings stay.")
+        messagebox.showinfo("Pixel Pomo Art Kit",
+                            t("migrated_msg", v=VERSION, data=data, n=migrated))
     if refused is not None:
-        messagebox.showwarning(
-            "Pixel Pomo Art Kit",
-            f"This app is not allowed to write to\n{refused}\n\n"
-            f"Your drawings are being kept in\n{data}\ninstead. "
-            f"(On macOS: System Settings → Privacy & Security → Files and Folders "
-            f"to allow Documents, then restart the app.)")
+        messagebox.showwarning("Pixel Pomo Art Kit",
+                               t("refused_msg", refused=refused, data=data))
     if skipped:
-        messagebox.showwarning(
-            "Pixel Pomo Art Kit",
-            f"{len(skipped)} drawing file(s) could not be read and were skipped.")
+        messagebox.showwarning("Pixel Pomo Art Kit", t("skipped_msg", n=len(skipped)))
     root.mainloop()
 
 

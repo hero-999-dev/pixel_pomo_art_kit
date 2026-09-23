@@ -94,3 +94,69 @@ class SettingsV26Test(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArtistColourTest(unittest.TestCase):
+    """#v2.8.0: "her artist için random farklı bir renk atansın"."""
+
+    def test_each_artist_gets_a_colour_of_their_own_and_keeps_it(self):
+        import colorsys
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            s = Settings(path)
+            colours = {name: s.artist_colour(name) for name in ("Mir", "Mia", "Ola")}
+            self.assertEqual(len(set(colours.values())), 3)
+            hues = [colorsys.rgb_to_hsv(*(int(c[i:i + 2], 16) / 255 for i in (0, 2, 4)))[0]
+                    for c in colours.values()]
+            for i, a in enumerate(hues):
+                for b in hues[i + 1:]:
+                    self.assertGreater(min(abs(a - b), 1 - abs(a - b)), 1 / 12,
+                                       "far apart on the wheel, so a shared initial still differs")
+            self.assertEqual(Settings(path).artist_colour("Mia"), colours["Mia"], "kept")
+
+
+class ExportMarkTest(unittest.TestCase):
+    """#v2.8.0, sixth test pass: the artist's mark on exports is remembered."""
+
+    def test_the_signature_and_the_name_in_the_file_persist_and_validate(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "settings.json"
+            s = Settings(path)
+            self.assertEqual((s.export_signature, s.export_metadata), ("none", True))
+            s.export_signature = "watermark"
+            s.export_metadata = False
+            s.export_signature = "graffiti"                    # not a mode: ignored
+            again = Settings(path)
+            self.assertEqual((again.export_signature, again.export_metadata), ("watermark", False))
+            again.data["export_signature"] = "nonsense"        # a hand-edited file
+            self.assertEqual(again.export_signature, "none")
+            again.export_signature = "corner+watermark"       # both marks at once
+            self.assertTrue(again.export_log, "the record is kept unless the artist says no")
+            again.export_log = False
+            last = Settings(path)
+            self.assertEqual((last.export_signature, last.export_log), ("corner+watermark", False))
+
+
+class ArtistRenameTest(unittest.TestCase):
+    """#v2.8.0, ninth test pass: an artist renamed keeps their colour; one
+    taken off every drawing gives it back."""
+
+    def test_the_colour_follows_a_rename_and_goes_with_a_removal(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            s = Settings(Path(tmp) / "settings.json")
+            mir = s.artist_colour("Mir")
+            s.rename_artist("Mir", "Ola Górecka")
+            self.assertEqual(Settings(Path(tmp) / "settings.json").artist_colour("Ola Górecka"), mir)
+            self.assertNotIn("Mir", s.data["artist_colours"])
+            other = s.artist_colour("Hero")
+            s.rename_artist("Hero", "Ola Górecka")               # onto a name that has one
+            self.assertEqual(s.artist_colour("Ola Górecka"), mir, "the existing one is kept")
+            self.assertNotEqual(other, mir)
+            s.forget_artist("Ola Górecka")
+            self.assertNotIn("Ola Górecka", s.data["artist_colours"])

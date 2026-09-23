@@ -217,6 +217,106 @@ class ExportTest(unittest.TestCase):
                 for got, want in zip(im.getpixel((0, 0)), (255, 0, 0)):
                     self.assertAlmostEqual(got, want, delta=3)
 
+    def test_png_export_keeps_empty_cells_transparent_by_default(self):
+        """The default has to stay what every earlier version wrote: a sprite
+        with a background baked in would be a silent regression for the game."""
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.png"
+            engine_io.export_png(d, out, scale=2)
+            from PIL import Image
+            with Image.open(out) as im:
+                self.assertEqual(im.mode, "RGBA")
+                self.assertEqual(im.getpixel((0, 0))[3], 0)
+
+    def test_png_export_flattens_empty_cells_onto_the_chosen_background(self):
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.png"
+            engine_io.export_png(d, out, scale=2, background="FFFFFF")
+            from PIL import Image
+            with Image.open(out) as im:
+                # PNG is lossless, so the corner is EXACTLY white and opaque,
+                # and no pixel anywhere is left see-through.
+                self.assertEqual(im.getpixel((0, 0)), (255, 255, 255, 255))
+                px = im.load()
+                self.assertTrue(all(px[x, y][3] == 255
+                                    for y in range(im.height) for x in range(im.width)))
+
+    def test_png_background_blends_a_half_transparent_pixel(self):
+        """Source-over, not a threshold: a half-transparent red over white is
+        pink. 128/255 is a hair over half, so white contributes 127."""
+        big = [[(255, 0, 0, 128)]]
+        self.assertEqual(engine_io.flatten_onto(big, "#FFFFFF"), [[(255, 127, 127, 255)]])
+
+    def test_png_background_is_flattened_under_the_grid_lines(self):
+        """The grid keeps the colour it was asked for; it is drawn last."""
+        d = Drawing.blank(2, 2, engine_io.import_flower("lale", 0).palette, species="lale")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.png"
+            engine_io.export_png(d, out, scale=4, grid="FF0000", background="FFFFFF")
+            from PIL import Image
+            with Image.open(out) as im:
+                self.assertEqual(im.getpixel((0, 0)), (255, 0, 0, 255))     # a grid line
+                self.assertEqual(im.getpixel((2, 2)), (255, 255, 255, 255))  # inside a cell
+
+    def test_png_background_refuses_something_that_is_not_a_colour(self):
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(engine_io.ExportRefused):
+                engine_io.export_png(d, Path(tmp) / "x.png", background="white")
+
+    def test_svg_export_lays_the_background_down_first(self):
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.svg"
+            engine_io.export_svg(d, out, cell=4, background="#123456")
+            text = out.read_text(encoding="utf-8")
+            body = text.splitlines()
+            self.assertIn('fill="#123456"', body[1])  # the rect right after <svg>
+            engine_io.export_svg(d, out, cell=4)
+            self.assertNotIn('fill="#123456"', out.read_text(encoding="utf-8"))
+
+    def test_jpg_export_takes_a_hex_background_and_the_grid_lines(self):
+        """#v2.8.0: JPG is offered with a grid and a chosen background too."""
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.jpg"
+            engine_io.export_jpg(d, out, scale=4, background="0000FF", grid="FF0000")
+            from PIL import Image
+            with Image.open(out) as im:
+                self.assertEqual(im.mode, "RGB")
+                for got, want in zip(im.getpixel((0, 0)), (255, 0, 0)):
+                    self.assertAlmostEqual(got, want, delta=4)   # a grid line
+                for got, want in zip(im.getpixel((2, 2)), (0, 0, 255)):
+                    self.assertAlmostEqual(got, want, delta=4)   # the background
+
+    def test_jpg_still_defaults_to_white_when_no_background_is_given(self):
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.jpg"
+            engine_io.export_jpg(d, out, scale=4, background=None)
+            from PIL import Image
+            with Image.open(out) as im:
+                for got in im.getpixel((0, 0)):
+                    self.assertAlmostEqual(got, 255, delta=3)
+
+    def test_composed_is_what_png_export_writes(self):
+        """The preview calls `composed`; if the two ever diverge the artist is
+        shown one thing and handed another."""
+        d = engine_io.import_flower("lale", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "x.png"
+            engine_io.export_png(d, out, scale=3, grid="FF0000", background="FFFFFF")
+            from PIL import Image
+            with Image.open(out) as im:
+                px = im.load()
+                cells = engine_io.composed(d, 3, "FF0000", "FFFFFF")
+                self.assertEqual(im.size, (len(cells[0]), len(cells)))
+                for y, row in enumerate(cells):
+                    for x, want in enumerate(row):
+                        self.assertEqual(px[x, y], want, f"at {x},{y}")
+
     def test_grid_literal_round_trips_through_the_engines_own_format(self):
         g = engine_io.gen_objects()
         text = engine_io.export_grid_literal(engine_io.import_flower("lale", 0))
@@ -426,3 +526,85 @@ class BugsAndSvgTest(unittest.TestCase):
         self.assertNotIn("<image", text)
         self.assertIn('width="20"', text)  # two neighbouring cells of one colour merge
 
+
+
+class RenderShortcutTest(unittest.TestCase):
+    """#v2.8.0: a drawing with no palette letter skips the generator's walk.
+    Its answer has to be the generator's own, cell for cell - the export
+    tests of the shipped forest go through it, and so does this."""
+
+    @staticmethod
+    def _generator(d):
+        """`render`'s generator path, whatever the cells."""
+        g = engine_io.gen_objects()
+        colors = d.palette.colors()
+        bloom, plant, raw = (g.blank(d.width, d.height) for _ in range(3))
+        for r, row in enumerate(d.cells):
+            for c, cell in enumerate(row):
+                if cell is None:
+                    continue
+                if isinstance(cell, tuple):
+                    raw[r][c] = cell
+                elif cell in engine_io.BLOOM_LETTERS:
+                    bloom[r][c] = colors[cell]
+                elif cell in engine_io.PLANT_LETTERS:
+                    plant[r][c] = colors[cell]
+        bloom = g.outline(bloom, d.palette.rim)
+        plant = g.outline(plant, d.palette.plant_rim)
+        return g._rose_compose([plant, bloom, raw])
+
+    def test_it_is_the_generators_answer_for_every_seeded_drawing(self):
+        drawings = engine_io.import_all()
+        self.assertTrue(any(engine_io.has_letters(d) for d in drawings))
+        self.assertTrue(any(not engine_io.has_letters(d) for d in drawings))
+        for d in drawings:
+            self.assertEqual(engine_io.render(d), self._generator(d), d.name)
+
+    def test_and_for_a_big_scattered_one(self):
+        import random
+        rnd = random.Random(7)
+        d = Drawing.blank(300, 200, engine_io._forest_palette())
+        for _ in range(5000):
+            d.paint(rnd.randrange(300), rnd.randrange(200), (rnd.randrange(256), 9, 9, 255))
+        self.assertFalse(engine_io.has_letters(d))
+        self.assertEqual(engine_io.render(d), self._generator(d))
+        d.paint(0, 0, "m")                      # one letter: the generator's path again
+        self.assertTrue(engine_io.has_letters(d))
+        self.assertEqual(engine_io.render(d), self._generator(d))
+
+
+class DrawingPatchTest(unittest.TestCase):
+    """#v2.8.0: the game's #v36.1 ships anthurium, pilea and sundew as the PNGs
+    Ola Górecka drew. The kit brings all five in, signed, and gives each one
+    back pixel for pixel."""
+
+    def test_the_five_come_in_signed_by_their_artist(self):
+        patch = [d for d in engine_io.import_all() if d.species in engine_io.PATCH_FLOWERS]
+        self.assertEqual(sorted((d.species, d.model) for d in patch),
+                         [("anthurium", 0), ("pilea", 0), ("pilea", 1), ("sundew", 0), ("sundew", 1)])
+        for d in patch:
+            self.assertEqual((d.artist, d.label, d.width, d.height),
+                             ("Ola Górecka", "flower", 16, 16))
+        self.assertEqual([d.name for d in patch],
+                         ["Anthurium", "Pilea 1", "Pilea 2", "Sundew 1", "Sundew 2"])
+
+    def test_each_goes_back_out_as_the_sprite_the_game_ships(self):
+        from PIL import Image
+        for species, n in engine_io.PATCH_FLOWERS.items():
+            for model in range(n):
+                d = engine_io.import_seed(species, model)
+                shipped = Image.open(engine_io.patch_sprite(species, model)).convert("RGBA")
+                px = shipped.load()
+                want = [px[x, y] if px[x, y][3] else (0, 0, 0, 0)
+                        for y in range(shipped.height) for x in range(shipped.width)]
+                big = engine_io._scaled(d, 16)
+                got = [tuple(p) if p[3] else (0, 0, 0, 0) for row in big for p in row]
+                self.assertEqual(got, want, f"{species} {model}")
+
+    def test_the_single_form_has_no_model_number(self):
+        anthurium = engine_io.import_seed("anthurium", 0)
+        self.assertEqual(engine_io.engine_sprite_names(anthurium), ["flower_anthurium.png"])
+        self.assertEqual(engine_io.suggested_sprite_name(anthurium), "flower_anthurium.png")
+        pilea = engine_io.import_seed("pilea", 0)
+        self.assertEqual(engine_io.engine_sprite_names(pilea),
+                         ["flower_pilea_0.png", "flower_pilea.png"])

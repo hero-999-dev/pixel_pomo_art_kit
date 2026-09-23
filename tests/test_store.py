@@ -17,6 +17,38 @@ PAL = Palette(d="9C1B2E", m="D93645", l="F2737C", centre="F2C94C", rim="2E0810")
 
 
 class CodecTest(unittest.TestCase):
+    def test_a_pixel_drawing_is_written_a_row_a_line(self):
+        """#v2.8.0: `indent=1` put every number on a line of its own - 37 MB
+        for a 2000-cell square. A row a line; a letter drawing unchanged."""
+        d = Drawing.blank(3, 2, PAL, artist="Mir")
+        d.paint(0, 0, (1, 2, 3, 255))
+        text = store.dumps(store.to_dict(d))
+        self.assertIn('"cells": [\n  [[1,2,3,255],null,null],\n  [null,null,null]\n ]', text)
+        back = store.from_dict(json.loads(text))
+        self.assertEqual((back.cells, back.artist), (d.cells, "Mir"))
+        letters = engine_io.import_flower("lale", 0)
+        self.assertEqual(store.dumps(store.to_dict(letters)),
+                         json.dumps(store.to_dict(letters), indent=1), "byte for byte as before")
+
+    def test_a_file_from_before_artists_has_none(self):
+        data = store.to_dict(Drawing.blank(2, 2, PAL))
+        del data["artist"]
+        self.assertEqual(store.from_dict(data).artist, "")
+
+    def test_leaving_the_colours_as_tuples_writes_the_same_file(self):
+        """#v2.8.0: `to_dict` no longer turns every colour into a list first -
+        `json.dumps` writes a tuple as an array anyway - and the saved text
+        must not change by a byte for it."""
+        d = Drawing.blank(3, 2, PAL)
+        d.paint(0, 0, (1, 2, 3, 255))
+        d.paint(2, 1, "m")
+        data = store.to_dict(d)
+        listed = dict(data, cells=[[list(c) if isinstance(c, tuple) else c for c in row]
+                                   for row in d.cells])
+        self.assertEqual(json.dumps(data, indent=1), json.dumps(listed, indent=1))
+        self.assertEqual(store.from_dict(data).cells, d.cells)
+        self.assertEqual(store.from_dict(json.loads(json.dumps(data))).cells, d.cells)
+
     def test_a_letter_drawing_round_trips(self):
         original = engine_io.import_flower("lale", 0)
         clone = store.from_dict(store.to_dict(original))
@@ -218,3 +250,18 @@ class LibraryTest(unittest.TestCase):
         self.assertTrue(any(d.label == "bugs" for d in added))
         again = self.lib.seed_missing_kinds()
         self.assertEqual(again, [], "a second pass adds nothing")
+
+
+class DrawingPatchSeedingTest(unittest.TestCase):
+    def test_a_library_seeded_before_the_patch_gets_it_on_the_next_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lib = store.Library(Path(tmp) / "library")
+            lib.seed_from_engine()
+            for d in [d for d in lib.drawings if d.species in engine_io.PATCH_FLOWERS]:
+                lib.remove(d)                                   # as a v2.7.0 library has it
+            added = lib.seed_missing_kinds()
+            self.assertEqual(sorted((d.species, d.model) for d in added),
+                             [("anthurium", 0), ("pilea", 0), ("pilea", 1), ("sundew", 0), ("sundew", 1)])
+            self.assertTrue(all(d.artist == engine_io.PATCH_ARTIST for d in added))
+            self.assertEqual(lib.seed_missing_kinds(), [], "and only once")
+            self.assertEqual(lib.artists(), [engine_io.PATCH_ARTIST])
