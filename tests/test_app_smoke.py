@@ -357,26 +357,6 @@ class AppSmokeTest(unittest.TestCase):
 
     # ---- #v2.5.0 ------------------------------------------------------------
 
-    def test_stick_mode_places_a_line_and_stamps_the_strip(self):
-        self.ui.new_drawing(16, 16)
-        self.ui.set_tool("draw")
-        self.ui.set_ink((0x80, 0, 0xff, 255))
-        d = self.ui.history.current
-        d.paint(2, 8, (0x80, 0, 0xff, 255))
-        self.ui.set_symmetry_mode(symmetry.STICK)
-        self.ui.set_symmetry_orientation(symmetry.VERTICAL)
-        self.ui.set_symmetry_length(5)
-        self.assertTrue(self.ui._placing_bar, "STICK with no line yet waits for a click")
-        self.ui.on_canvas_press(8, 8)  # places the line; stamps rows 6..10
-        self.ui.on_canvas_release()
-        self.assertFalse(self.ui._placing_bar)
-        self.assertEqual((self.ui.symmetry_bar.col, self.ui.symmetry_bar.row), (8, 8))
-        # 2*8-1-2 = 13
-        self.assertEqual(self.ui.history.current.get(13, 8), (0x80, 0, 0xff, 255))
-        self.ui.undo()
-        self.assertIsNone(self.ui.history.current.get(13, 8), "the stamp is one undo")
-        self.assertEqual(self.settings.symmetry["mode"], "stick")
-
     def test_pressing_on_the_bar_drags_it_instead_of_painting(self):
         self.ui.new_drawing(16, 16)
         self.ui.set_tool("draw")
@@ -399,12 +379,12 @@ class AppSmokeTest(unittest.TestCase):
         self.ui.on_canvas_release()
         self.assertEqual((self.ui.symmetry_bar.col, self.ui.symmetry_bar.row), (2, 2))
 
-    def test_the_m_key_cycles_off_mirror_stick(self):
+    def test_the_m_key_cycles_off_mirror_reverse(self):
         self.assertEqual(self.ui.symmetry_mode, symmetry.OFF)
         self.ui.cycle_symmetry_mode()
         self.assertEqual(self.ui.symmetry_mode, symmetry.MIRROR)
         self.ui.cycle_symmetry_mode()
-        self.assertEqual(self.ui.symmetry_mode, symmetry.STICK)
+        self.assertEqual(self.ui.symmetry_mode, symmetry.REVERSE)
         self.ui.cycle_symmetry_mode()
         self.assertEqual(self.ui.symmetry_mode, symmetry.OFF)
         with self.assertRaises(ValueError):
@@ -709,8 +689,8 @@ class AppSmokeTest(unittest.TestCase):
         self.ui._hover_cell = (0, 0)
         self.ui._refresh_counter()
         self.ui._refresh_cursor_label()
-        self.assertIn("row 0: 4", self.ui._counter_label.cget("text"))
-        self.assertIn("col 0: 2", self.ui._counter_label.cget("text"))
+        self.assertIn("row 1: 4", self.ui._counter_label.cget("text"), "counted from 1, as the rulers")
+        self.assertIn("col 1: 2", self.ui._counter_label.cget("text"))
         self.assertIn("#ff0000", self.ui._cursor_label.cget("text"))
         self.assertEqual([h for h, _ in self.ui._colour_strip._items], ["FF0000", "0000FF"])
         self.assertEqual(self.ui._colour_strip._items[0][1], 4)
@@ -2816,7 +2796,7 @@ class AppSmokeTest(unittest.TestCase):
         self.ui._draw_main()
         self.assertTrue(self.ui.canvas.find_withtag("grid"))
         self.ui.set_looking(True)
-        self.assertTrue(self.ui._look_button.cget("text").startswith(dialogs.TICKED))
+        self.assertEqual(self.ui._look_button.cget("bg"), theme.ACCENT, "LOOK is pressed")
         self.assertFalse(self.ui.canvas.find_withtag("grid"), "no cell lines")
         self.assertFalse(self.ui.canvas.find_withtag("symmetry"), "no symmetry line")
         plain = model.hex_to_rgba(theme.CANVAS_BG)
@@ -2979,3 +2959,543 @@ class AppSmokeTest(unittest.TestCase):
         self.assertEqual(app._pads((3, 11)), (3, 11))
         self.assertEqual(app._pads("8 14"), (8, 14))
         self.assertEqual(app._pads(5), (5, 5))
+
+    # ---- #v2.9.0, first test pass: REVERSE in STICK's place, LOOK beside the grid ----
+
+    def _reverse_setup(self):
+        """A 16 x 16 with two cells in a 2 x 2 selection at (2, 2)."""
+        self.ui.new_drawing(16, 16)
+        d = self.ui.history.current
+        d.paint(2, 2, (200, 0, 0, 255))
+        d.paint(3, 3, (0, 0, 200, 255))
+        self.ui._after_change()
+        self.ui.set_tool("select")
+        self.ui.select_region(2, 2, 3, 3)
+        return d
+
+    def test_reverse_copies_the_selection_turned_over_beside_it_as_one_undo(self):
+        """"mirror yanında stick kısmı kaldırılsın yerine reverse gelsin"."""
+        self.assertNotIn("stick", [key for _b, key in self.ui._chrome_pairs()])
+        self._reverse_setup()
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.set_reverse_axis(symmetry.AXIS_Y)
+        self.ui.set_reverse_direction("right")
+        self.ui.set_reverse_gap(gap=0)
+        self.assertTrue(self.ui.apply_reverse())
+        d = self.ui.history.current
+        self.assertEqual(d.get(5, 2), (200, 0, 0, 255), "left and right swap, right beside it")
+        self.assertEqual(d.get(4, 3), (0, 0, 200, 255))
+        self.assertEqual(d.get(2, 2), (200, 0, 0, 255), "the original stays")
+        self.assertEqual(self.ui.selection, (2, 2, 3, 3), "and stays selected for the next arrow")
+        self.assertIn("5, 3", self.ui._status.cget("text"), "column 4 is x5, counted from 1")
+        self.ui.undo()
+        self.assertIsNone(self.ui.history.current.get(5, 2), "one undo takes the copy away")
+        self.assertEqual(self.ui.history.current.get(2, 2), (200, 0, 0, 255))
+
+    def test_reverse_across_x_and_diagonally_a_distance_away(self):
+        """"sol altı seçtim 15 yazdım uzaklığa: 15 x ve 15 y sol çaprazda"."""
+        self.ui.new_drawing(40, 40)
+        d = self.ui.history.current
+        d.paint(20, 20, (200, 0, 0, 255))
+        self.ui._after_change()
+        self.ui.set_tool("select")
+        self.ui.select_region(20, 20, 21, 21)
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.set_reverse_axis(symmetry.AXIS_X)
+        self.ui.set_reverse_direction("down_left")
+        self.ui.set_reverse_spacing(symmetry.SPACING_SAME)
+        self.ui.set_reverse_gap(gap=15)
+        self.ui.apply_reverse()
+        # the copy's top-left is (20 - 2 - 15, 20 + 2 + 15) = (3, 37); upside
+        # down, the painted top-left cell lands on its bottom row
+        self.assertEqual(self.ui.history.current.get(3, 38), (200, 0, 0, 255))
+        # "sağ 5 yukarı 2": X · Y
+        self.ui.set_reverse_spacing(symmetry.SPACING_XY)
+        self.ui.set_reverse_gap(gap_x=5, gap_y=2)
+        self.ui.set_reverse_direction("up_right")
+        self.ui.set_reverse_axis(symmetry.AXIS_XY)
+        self.ui.apply_reverse()
+        # corner (20 + 2 + 5, 20 - 2 - 2) = (27, 16); half round, top-left -> bottom-right
+        self.assertEqual(self.ui.history.current.get(28, 17), (200, 0, 0, 255))
+        self.assertEqual(self.settings.reverse["gap_x"], 5, "the panel is remembered")
+
+    def test_reverse_waits_for_a_selection_and_the_button_glows_once_there_is_one(self):
+        """"select kısmına basınca ve seçtikten sonra parlayacak"."""
+        self.ui.new_drawing(16, 16)
+        self.ui.set_tool("draw")
+        btn = self.ui._sym_mode_buttons[symmetry.REVERSE]
+        self.assertEqual(btn.cget("bg"), theme.PANEL, "nothing selected: an ordinary button")
+        self.ui.set_tool("select")
+        self.ui.on_canvas_press(1, 1)
+        self.ui.on_canvas_drag(4, 3)
+        self.ui.on_canvas_release()
+        self.assertEqual(btn.cget("fg"), theme.ACCENT, "a selection: it glows")
+        self.ui.clear_selection()
+        self.assertEqual(btn.cget("fg"), theme.ON_SURFACE)
+        self.ui.set_tool("draw")
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.assertEqual(self.ui.tool, "select", "REVERSE with nothing selected gets SELECT ready")
+        self.assertEqual(btn.cget("bg"), theme.ACCENT, "pressed while it is the mode")
+        self.assertFalse(self.ui.apply_reverse(), "nothing to copy yet")
+        self.assertEqual(self.ui._rev_hint.cget("text"), i18n.t("rev_select_first"))
+        self.assertEqual(str(self.ui._rev_apply_button.cget("state")), "disabled")
+
+    def test_enter_copies_reversed_under_reverse(self):
+        self._reverse_setup()
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.set_reverse_axis(symmetry.AXIS_Y)
+        self.ui.set_reverse_direction("down")
+        self.ui.set_reverse_gap(gap=0)
+        self.ui._on_enter()
+        # below it, left and right swapped: the red corner cell moves over one
+        self.assertEqual(self.ui.history.current.get(3, 4), (200, 0, 0, 255))
+        self.assertEqual(self.ui.history.current.get(2, 5), (0, 0, 200, 255))
+
+    def test_each_mode_shows_its_own_panel_and_off_shows_none(self):
+        """"mirrora basınca alttaki mirror panelinin yerine kendi panelini
+        koyacak" and "symmetry'de offa basınca alttaki mirrorun paneli kalksın"."""
+        mirror = self.ui._sym_panels[symmetry.MIRROR]
+        reverse = self.ui._sym_panels[symmetry.REVERSE]
+        self.ui.new_drawing(16, 16)
+        self.ui.set_symmetry_mode(symmetry.OFF)
+        self.assertEqual((mirror.winfo_manager(), reverse.winfo_manager()), ("", ""))
+        self.ui.set_symmetry_mode(symmetry.MIRROR)
+        self.assertEqual((mirror.winfo_manager(), reverse.winfo_manager()), ("pack", ""))
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.assertEqual((mirror.winfo_manager(), reverse.winfo_manager()), ("", "pack"))
+        self.ui.set_symmetry_mode(symmetry.OFF)
+        self.assertEqual((mirror.winfo_manager(), reverse.winfo_manager()), ("", ""))
+
+    def test_the_reverse_panel_has_eight_arrows_and_the_distance_modes(self):
+        self.assertEqual(set(self.ui._rev_arrow_buttons), set(symmetry.DIRECTIONS) | {None},
+                         "eight arrows and the square in the middle")
+        self.ui.new_drawing(16, 16)
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.set_reverse_spacing(symmetry.SPACING_SAME)
+        self.assertEqual((self.ui._rev_same_row.winfo_manager(), self.ui._rev_xy_row.winfo_manager()),
+                         ("pack", ""))
+        self.ui.set_reverse_spacing(symmetry.SPACING_XY)
+        self.assertEqual((self.ui._rev_same_row.winfo_manager(), self.ui._rev_xy_row.winfo_manager()),
+                         ("", "pack"))
+        self.ui.set_reverse_direction("right")
+        self.assertEqual(str(self.ui._rev_gap_y_spin.cget("state")), "disabled",
+                         "a straight arrow has no use for the other distance")
+        self.ui.set_reverse_direction("up_right")
+        self.assertEqual(str(self.ui._rev_gap_y_spin.cget("state")), "normal")
+        self.assertEqual(self.ui._rev_arrow_buttons["up_right"].cget("bg"), theme.ACCENT)
+
+    def test_the_canvas_shows_where_the_reversed_copy_will_land(self):
+        self._reverse_setup()
+        self.ui.zoom_level = 10
+        self.ui._draw_main()
+        self.assertFalse(self.ui.canvas.find_withtag("reverse"), "not outside REVERSE")
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.set_reverse_direction("right")
+        self.ui.set_reverse_gap(gap=2)
+        self.assertTrue(self.ui.canvas.find_withtag("reverse"))
+        outline = [i for i in self.ui.canvas.find_withtag("reverse")
+                   if self.ui.canvas.type(i) == "rectangle"][0]
+        x0, y0, _x1, _y1 = self.ui.canvas.coords(outline)
+        self.assertEqual((round(x0), round(y0)), (6 * 10 + 1, 2 * 10 + 1),
+                         "column 2 + 2 wide + 2 away, a pixel inside the cell edge")
+        self.ui.set_looking(True)
+        self.assertFalse(self.ui.canvas.find_withtag("reverse"), "not under LOOK")
+
+    def test_look_is_the_third_of_the_grid_row_and_works_like_them(self):
+        """"LOOK ... with grid ve without grid kısmının sağına eklensin, aynı
+        fontta olsun, onlar gibi çalışsın, o kısım üçe bölünsün"."""
+        views = self.ui._view_buttons
+        self.assertIs(views[2], self.ui._look_button)
+        self.assertEqual({b.master for b in views}, {self.ui._grid_buttons[True].master})
+        self.assertEqual([b.grid_info()["column"] for b in views], [0, 1, 2])
+        self.assertEqual(len({b.pinned[0] for b in views}), 1, "three equal boxes")
+        for lang in i18n.LANGS:
+            self.ui.set_language(lang)
+            self.assertEqual(len({str(b.cget("font")) for b in views}), 1, f"one size in {lang}")
+        self.ui.set_language("en")
+        self.ui.new_drawing(8, 8)
+        self.ui.set_show_grid(True)
+        self.ui.set_looking(True)
+        self.assertEqual([b.cget("bg") for b in views], [theme.PANEL, theme.PANEL, theme.ACCENT])
+        self.ui.set_show_grid(False)
+        self.assertFalse(self.ui.looking, "a GRID button leads back out of LOOK")
+        self.assertEqual([b.cget("bg") for b in views], [theme.PANEL, theme.ACCENT, theme.PANEL])
+        self.ui.toggle_looking()
+        self.ui.toggle_looking()
+        self.assertFalse(self.ui.looking, "and LOOK again lets go of it")
+        self.assertFalse(self.ui.show_grid, "the grid is as it was left")
+
+    # ---- #v2.9.0, second test pass ----------------------------------------------
+
+    def test_the_middle_square_takes_the_arrow_away(self):
+        """"yönü kapamak için sadece select kalması için ortadaki kareye basma"."""
+        d = self._reverse_setup()
+        self.ui.zoom_level = 10
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.set_reverse_direction("right")
+        self.assertTrue(self.ui.canvas.find_withtag("reverse"))
+        self.ui._rev_arrow_buttons[None].invoke()
+        self.assertIsNone(self.ui._rev_direction)
+        self.assertEqual(self.ui._rev_arrow_buttons[None].cget("bg"), theme.ACCENT)
+        self.assertFalse(self.ui.canvas.find_withtag("reverse"), "no copy to show")
+        self.assertEqual(self.ui.selection, (2, 2, 3, 3), "only the selection is left")
+        before = [list(r) for r in d.cells]
+        self.assertFalse(self.ui.apply_reverse())
+        self.assertEqual(self.ui.history.current.cells, before)
+        self.assertEqual(self.ui._rev_hint.cget("text"), i18n.t("rev_pick_arrow"))
+        self.assertEqual(self.settings.reverse["direction"], "none")
+        self.ui._rev_arrow_buttons["up"].invoke()
+        self.assertEqual(self.ui._rev_direction, "up")
+        self.ui._rev_arrow_buttons["up"].invoke()
+        self.assertIsNone(self.ui._rev_direction, "the pressed arrow again lets go too")
+
+    def test_reverse_lets_go_when_its_selection_is_moved_so_it_can_be_chosen_again(self):
+        """"select dedim, reverse dedim, sonra select kısmını oynattım ... sağdaki
+        reversed kısmı aktif kaldı, bu da tekrar seçememe neden oldu"."""
+        self._reverse_setup()
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.on_canvas_press(2, 2)            # inside: lifts the block to move it
+        self.ui.on_canvas_drag(6, 6)
+        self.ui.on_canvas_release()
+        self.assertEqual(self.ui.symmetry_mode, symmetry.OFF, "its selection went, so REVERSE did")
+        self.assertEqual(self.ui._sym_panels[symmetry.REVERSE].winfo_manager(), "")
+        self.ui.on_canvas_press(12, 12)          # drops the block where it is
+        self.assertIsNotNone(self.ui.selection)
+        self.ui._on_mode_button(symmetry.REVERSE)
+        self.assertEqual(self.ui.symmetry_mode, symmetry.REVERSE, "and can be chosen again")
+        self.ui._on_mode_button(symmetry.REVERSE)
+        self.assertEqual(self.ui.symmetry_mode, symmetry.OFF, "pressed again, it lets go")
+
+    def test_r_copies_reversed(self):
+        self._reverse_setup()
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.set_reverse_axis(symmetry.AXIS_Y)
+        self.ui.set_reverse_direction("right")
+        self.ui.set_reverse_gap(gap=0)
+        self.ui._on_reverse_key()
+        self.assertEqual(self.ui.history.current.get(5, 2), (200, 0, 0, 255))
+        self.ui.set_symmetry_mode(symmetry.OFF)
+        before = [list(r) for r in self.ui.history.current.cells]
+        self.ui.set_reverse_direction("down")
+        self.ui._on_reverse_key()
+        self.assertEqual(self.ui.history.current.cells, before, "R is REVERSE's only")
+
+    def test_the_preview_lies_under_the_cell_lines(self):
+        """"kopyalanın reversed'de gridli gelmiyor, gridsiz hali önizlemede"."""
+        self._reverse_setup()
+        self.ui.zoom_level = 10
+        self.ui.set_show_grid(True)
+        self.ui.set_symmetry_mode(symmetry.REVERSE)
+        self.ui.set_reverse_direction("right")
+        self.ui._draw_main()
+        order = self.ui.canvas.find_all()
+        ghost = [i for i in self.ui.canvas.find_withtag("reverse") if self.ui.canvas.type(i) == "image"][0]
+        first_line = min(order.index(i) for i in self.ui.canvas.find_withtag("grid"))
+        self.assertLess(order.index(ghost), first_line, "the lines are drawn over it")
+
+
+    # ---- #v2.9.0, third test pass: the rulers, VIEW ONLY -----------------------------
+
+    def _ruler_labels(self, ruler):
+        return [ruler.itemcget(i, "text") for i in ruler.find_withtag("label")]
+
+    def test_the_rulers_head_every_column_and_row_like_a_spreadsheet(self):
+        """"x1, x2, x3, x4, y1, y2, y3 koordinat kutuları eklensin sol tarafa ve
+        üst tarafa, microsoft exceldeki gibi"."""
+        self.ui.new_drawing(8, 6)
+        self.ui.canvas.canvasx = lambda v: v
+        self.ui.canvas.canvasy = lambda v: v
+        self.ui.zoom_level = 40
+        self.ui._draw_main()
+        self.assertTrue(self.ui.show_rulers, "shown to begin with")
+        top = self._ruler_labels(self.ui._ruler_top)
+        left = self._ruler_labels(self.ui._ruler_left)
+        self.assertEqual(top[:4], ["x1", "x2", "x3", "x4"])
+        self.assertEqual(left[:3], ["y1", "y2", "y3"])
+        self.assertIn("x8", top)
+        self.assertNotIn("x9", top, "no heading past the drawing")
+        # each label sits over its own column
+        x1 = [i for i in self.ui._ruler_top.find_withtag("label")
+              if self.ui._ruler_top.itemcget(i, "text") == "x3"][0]
+        self.assertEqual(self.ui._ruler_top.coords(x1)[0], 2 * 40 + 20)
+
+    def test_zoomed_out_every_cell_keeps_its_own_box_and_label(self):
+        """"x ve y koordinatları ne olursa olsun tek tek sıra sıra gözüksün ...
+        excelde %100'ü %1'e getirince nasıl oluyorsa"."""
+        self.ui.new_drawing(200, 200)
+        self.ui.canvas.canvasx = lambda v: v
+        self.ui.canvas.canvasy = lambda v: v
+        self.ui.zoom_level = 40
+        self.ui._draw_main()
+        big = self.ui._ruler_top.itemcget(self.ui._ruler_top.find_withtag("label")[0], "font")
+        self.ui.zoom_level = 12
+        self.ui._draw_main()
+        top = self._ruler_labels(self.ui._ruler_top)
+        self.assertEqual(top[:12], [f"x{n}" for n in range(1, 13)], "one after another, none skipped")
+        small = self.ui._ruler_top.itemcget(self.ui._ruler_top.find_withtag("label")[0], "font")
+        size = lambda f: abs(int(self.root.tk.splitlist(f)[1]))
+        self.assertLess(size(small), size(big), "the type shrinks with the cells")
+        self.ui.zoom_level = 2
+        self.ui._draw_main()
+        ticks = len(self.ui._ruler_top.find_withtag("tick"))
+        w, _h = self.ui._viewport()
+        self.assertGreaterEqual(ticks, min(200, w // 2), "a box for every column, however small")
+
+    def test_the_rulers_mark_the_selection_and_the_cell_under_the_pointer(self):
+        self.ui.new_drawing(8, 8)
+        self.ui.canvas.canvasx = lambda v: v
+        self.ui.canvas.canvasy = lambda v: v
+        self.ui.zoom_level = 20
+        self.ui._draw_main()
+        self.assertFalse(self.ui._ruler_top.find_withtag("mark"))
+        self.ui.select_region(2, 1, 4, 3)
+        marks = self.ui._ruler_top.find_withtag("mark")
+        self.assertEqual(len(marks), 1)
+        self.assertEqual([round(v) for v in self.ui._ruler_top.coords(marks[0])][::2], [40, 100])
+        self.ui._hover_cell = (6, 6)
+        self.ui._draw_ruler_marks()
+        self.assertEqual(len(self.ui._ruler_left.find_withtag("mark")), 2)
+
+    def test_the_rulers_switch_sits_bottom_right_and_hides_them(self):
+        """"göster ve gizle butonu olsun, sağ en altta ... x ve y ve renk kısmının
+        çıktığı yerin sağında kalsın"."""
+        btn, readout = self.ui._rulers_button, self.ui._cursor_label
+        self.assertIs(btn.master, readout.master)
+        packed = btn.master.pack_slaves()
+        self.assertLess(packed.index(btn), packed.index(readout), "packed right first: the far right")
+        self.assertEqual(btn.cget("bg"), theme.ACCENT)
+        btn.invoke()
+        self.assertFalse(self.ui.show_rulers)
+        self.assertEqual(self.ui._ruler_top.winfo_manager(), "")
+        self.assertEqual(self.ui._ruler_left.winfo_manager(), "")
+        self.assertFalse(self.settings.show_rulers, "remembered")
+        btn.invoke()
+        self.assertEqual(self.ui._ruler_top.winfo_manager(), "grid")
+
+    def test_the_readout_counts_from_1_like_the_rulers(self):
+        self.ui.new_drawing(8, 8)
+        self.ui._hover_cell = (0, 0)
+        self.ui._refresh_cursor_label()
+        self.assertTrue(self.ui._cursor_label.cget("text").startswith("x 1  y 1"))
+
+    def test_look_is_called_view_only(self):
+        """"look yerine daha açıklayıcı bir isim gelebilir"."""
+        self.assertEqual(self.ui._look_button.cget("text"), "VIEW ONLY")
+
+    # ---- #v2.9.0, fifth test pass: a heading selects its column or row -------------------
+
+    def test_pressing_a_heading_selects_its_whole_column_or_row(self):
+        """"x1'e basınca yukarıda tüm x1 satırı select olsun, aynı şekilde y1"."""
+        self.ui.new_drawing(10, 6)
+        self.ui.canvas.canvasx = lambda v: v
+        self.ui.canvas.canvasy = lambda v: v
+        self.ui.zoom_level = 20
+        self.ui._draw_main()
+        self.ui.set_tool("draw")
+
+        class Ev:
+            def __init__(self, x=0, y=0): self.x, self.y = x, y
+
+        self.ui._on_ruler_press(Ev(x=5), True)                  # x1
+        self.assertEqual(self.ui.selection, (0, 0, 0, 5), "all of column x1")
+        self.assertEqual(self.ui.tool, "select")
+        self.ui._on_ruler_drag(Ev(x=65), True)                  # along to x4
+        self.assertEqual(self.ui.selection, (0, 0, 3, 5))
+        self.ui._on_ruler_drag(Ev(x=900), True)
+        self.assertEqual(self.ui.selection, (0, 0, 9, 5), "a drag past the end stops at the last column")
+        self.ui._ruler_anchor = None
+        self.ui._on_ruler_press(Ev(y=45), False)                # y3
+        self.assertEqual(self.ui.selection, (0, 2, 9, 2), "all of row y3")
+        self.ui._on_ruler_press(Ev(x=500), True)                # past the drawing
+        self.assertEqual(self.ui.selection, (0, 2, 9, 2), "nothing to select there")
+        self.ui.select_whole()
+        self.assertEqual(self.ui.selection, (0, 0, 9, 5))
+        self.ui.set_looking(True)
+        self.ui._on_ruler_press(Ev(x=5), True)
+        self.assertIsNone(self.ui.selection, "not under VIEW ONLY")
+
+    # ---- #v2.9.0, sixth test pass: SWAP, every pixel of a colour at once ----------------
+
+    def _swap_setup(self):
+        self.ui.new_drawing(8, 8)
+        d = self.ui.history.current
+        red, blue = (200, 0, 0, 255), (0, 0, 200, 255)
+        for c, r in ((0, 0), (5, 1), (2, 6), (7, 7)):
+            d.paint(c, r, red)
+        d.paint(3, 3, blue)
+        self.ui._after_change()
+        return d, red, blue
+
+    def test_swap_changes_every_pixel_of_a_colour_at_once_as_one_undo(self):
+        """"an ability to select a color of pixels on the grid and change their
+        color all at once"."""
+        d, red, blue = self._swap_setup()
+        green = (0, 180, 0, 255)
+        self.ui.set_ink(green)
+        self.ui.set_tool("swap")
+        self.ui.on_canvas_press(5, 1)
+        self.ui.on_canvas_release()
+        cur = self.ui.history.current
+        self.assertEqual([cur.get(c, r) for c, r in ((0, 0), (5, 1), (2, 6), (7, 7))], [green] * 4)
+        self.assertEqual(cur.get(3, 3), blue, "other colours untouched")
+        self.assertIn("4", self.ui._status.cget("text"))
+        self.ui.undo()
+        self.assertEqual(self.ui.history.current.get(7, 7), red, "one undo puts every one back")
+        self.assertEqual(self.ui.history.current.get(0, 0), red)
+
+    def test_select_then_swap_keeps_to_the_selection(self):
+        """"use select & change to change all cells with the same color at once"."""
+        d, red, _blue = self._swap_setup()
+        self.ui.set_tool("select")
+        self.ui.select_region(0, 0, 5, 5)
+        self.ui.set_tool("swap")
+        self.assertEqual(self.ui.selection, (0, 0, 5, 5), "the selection stays for SWAP")
+        self.ui.set_ink((0, 180, 0, 255))
+        self.ui.on_canvas_press(0, 0)
+        cur = self.ui.history.current
+        self.assertEqual(cur.get(0, 0), (0, 180, 0, 255))
+        self.assertEqual(cur.get(5, 1), (0, 180, 0, 255))
+        self.assertEqual(cur.get(2, 6), red, "outside the selection: left alone")
+        self.assertEqual(cur.get(7, 7), red)
+
+    def test_swap_matches_a_letter_and_a_raw_colour_that_look_the_same(self):
+        self.ui.new_drawing(4, 1)
+        d = self.ui.history.current
+        d.paint(0, 0, "m")
+        d.paint(1, 0, d.palette.colors()["m"])
+        self.ui._after_change()
+        self.ui.set_ink((1, 2, 3, 255))
+        self.ui.set_tool("swap")
+        self.ui.on_canvas_press(0, 0)
+        cur = self.ui.history.current
+        self.assertEqual([cur.get(0, 0), cur.get(1, 0)], [(1, 2, 3, 255)] * 2)
+
+    def test_swap_refuses_an_empty_pixel_and_the_ink_itself(self):
+        d, red, _blue = self._swap_setup()
+        self.ui.set_tool("swap")
+        before = [list(r) for r in d.cells]
+        self.ui.on_canvas_press(1, 1)                      # empty
+        self.assertEqual(self.ui._status.cget("text"), i18n.t("swap_empty"))
+        self.ui.set_ink(red)
+        self.ui.on_canvas_press(0, 0)
+        self.assertEqual(self.ui._status.cget("text"), i18n.t("swap_same"))
+        self.assertEqual(self.ui.history.current.cells, before)
+        self.ui.set_looking(True)
+        self.ui.set_ink((9, 9, 9, 255))
+        self.ui.swap_colour_at(0, 0)
+        self.assertEqual(self.ui.history.current.cells, before, "not under VIEW ONLY")
+
+    def test_hovering_with_swap_outlines_the_pixels_it_would_change(self):
+        d, _red, _blue = self._swap_setup()
+        self.ui.zoom_level = 20
+        self.ui.canvas.canvasx = lambda v: v
+        self.ui.canvas.canvasy = lambda v: v
+        self.ui._draw_main()
+        self.ui.set_tool("swap")
+        self.ui._hover_cell = (0, 0)
+        self.ui._draw_ghost()
+        self.assertEqual(len(self.ui.canvas.find_withtag("ghost")), 4)
+        self.ui._hover_cell = (1, 1)                     # empty: nothing to show
+        self.ui._draw_ghost()
+        self.assertEqual(len(self.ui.canvas.find_withtag("ghost")), 0)
+
+    def test_swap_is_the_fifth_tool_on_c(self):
+        self.assertIn("swap", self.ui._tool_buttons)
+        self.assertIn(("swap"), [k for _b, k in self.ui._chrome_pairs()])
+        tools = self.ui._tool_buttons
+        self.assertIs(tools["swap"].master, tools["draw"].master)
+
+    # ---- #v2.9.0, seventh test pass: the snapshot message opens its file ---------------
+
+    def test_clicking_the_snapshot_message_shows_the_file(self):
+        """"sağ üstte snapshot yazıyor, ona basınca direkt lokasyonunu açmasını
+        isterim"."""
+        from unittest import mock
+        from PIL import Image
+        self.ui.new_drawing(8, 8)
+        with mock.patch.object(app.snapshot, "grab", return_value=Image.new("RGB", (4, 3))):
+            self.ui.take_snapshot()
+        png = sorted((self.lib.root.parent / "snapshots").glob("*.png"))[0]
+        self.assertEqual(str(self.ui._status.cget("cursor")), "hand2")
+        with mock.patch.object(app.paths, "reveal") as reveal:
+            self.ui._status.event_generate("<Button-1>")
+            self.ui._on_status_click()
+        reveal.assert_called_with(png)
+        self.ui._set_status("something else")
+        self.assertEqual(str(self.ui._status.cget("cursor")), "")
+        with mock.patch.object(app.paths, "reveal") as reveal:
+            self.ui._on_status_click()
+        reveal.assert_not_called()
+
+    def test_folding_slides_the_list_aside_instead_of_taking_it_away(self):
+        """The library opened again showed the folded canvas's old picture,
+        then nothing, where the list goes (seventh test pass): its rows were
+        unmapped on every fold and mapped again, late, on every unfold."""
+        body = self.ui._library_body
+        self.assertEqual(body.winfo_manager(), "place")
+        self.ui.set_library_collapsed(True)
+        self.assertEqual(body.winfo_manager(), "place", "still there, out of sight")
+        self.assertLess(int(body.place_info()["x"]), -app.LIBRARY_W + app.LIBRARY_RAIL)
+        self.ui.set_library_collapsed(False)
+        self.assertEqual(int(body.place_info()["x"]), 0)
+
+
+    # ---- #v2.9.0, eighth test pass: an artist's feedback from macOS ----------------------
+
+    def test_the_colour_panel_shows_the_ink_as_numbers_and_the_colour_it_replaced(self):
+        """"in the color panel when I click, I can see the color changing, but I
+        wish sth like this was in the art kit" - with Photoshop's picker."""
+        self.ui.set_ink((163, 145, 101, 255))
+        e = self.ui._colour_entries
+        self.assertEqual([e[k].get() for k in "rgb"], ["163", "145", "101"])
+        self.assertEqual([e[k].get() for k in "hsv"], ["43", "38", "64"], "Photoshop's own H S B")
+        self.assertEqual(self.ui._ink_swatches["ink_now"].cget("bg"), "#a39165")
+        before = self.ui.ink
+        self.ui.set_ink((10, 20, 30, 255))
+        self.assertEqual(self.ui._ink_swatches["ink_was"].cget("bg"), "#a39165", "the one it replaced")
+        self.ui.set_ink((11, 20, 30, 255), coalesce=True)             # the next step of a drag
+        self.assertEqual(self.ui._ink_swatches["ink_was"].cget("bg"), "#a39165", "a drag is one change")
+        self.ui.back_to_was()
+        self.assertEqual(self.ui.ink, before, "WAS goes back to it")
+        self.assertEqual(str(self.ui._ink_swatches["ink_was"].cget("cursor")), "hand2")
+
+    def test_typing_the_numbers_sets_the_ink(self):
+        e = self.ui._colour_entries
+        for key, value in (("r", "255"), ("g", "0"), ("b", "128")):
+            e[key].delete(0, "end")
+            e[key].insert(0, value)
+        self.ui._on_colour_numbers(1)
+        self.assertEqual(self.ui.ink, (255, 0, 128, 255))
+        for key, value in (("h", "120"), ("s", "100"), ("v", "50")):
+            e[key].delete(0, "end")
+            e[key].insert(0, value)
+        self.ui._on_colour_numbers(0)
+        self.assertEqual(self.ui.ink, (0, 128, 0, 255))
+        e["r"].delete(0, "end")
+        e["r"].insert(0, "lots")
+        self.ui._on_colour_numbers(1)
+        self.assertEqual(self.ui.ink, (0, 128, 0, 255), "not a number: nothing changes")
+        self.assertEqual(e["r"].get(), "0", "and the field is put back")
+        e["g"].delete(0, "end")
+        e["g"].insert(0, "999")
+        self.ui._on_colour_numbers(1)
+        self.assertEqual(self.ui.ink, (0, 255, 0, 255), "clamped to 255")
+
+    def test_the_shade_square_rings_the_ink_and_follows_its_hue(self):
+        picker = self.ui._picker
+        self.ui.set_ink((0, 0, 255, 255))                      # a swatch, say: blue
+        self.assertAlmostEqual(picker.hue, 240 / 360, places=2, msg="the strip came round to blue")
+        self.assertEqual(len(picker.sv_square.find_withtag("mark")), 1)
+        self.assertEqual(len(picker.hue_strip.find_withtag("mark")), 1)
+        x0, y0, x1, y1 = picker.sv_square.coords(picker.sv_square.find_withtag("mark")[0])
+        self.assertEqual(round((x0 + x1) / 2), app.PICKER_W - 1, "full saturation: the right edge")
+        self.assertEqual(round((y0 + y1) / 2), 0, "full brightness: the top")
+        self.ui.set_ink((128, 128, 128, 255))
+        self.assertAlmostEqual(picker.hue, 240 / 360, places=2, msg="a grey has no hue to go to")
+
+    def test_the_mac_icon_is_sharp_at_every_size_it_is_drawn_at(self):
+        """"the icon does look a bit blurry in my dock" (macOS, v2.7)."""
+        from art_kit import branding
+        for size in (64, 128, 256, 512, 1024):
+            colours = branding.mac_tile(size).getcolors(1 << 20)
+            self.assertLessEqual(len(colours), 12, f"{size}px: cells whole, nothing smoothed")

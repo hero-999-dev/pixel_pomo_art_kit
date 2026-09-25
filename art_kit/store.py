@@ -153,6 +153,26 @@ def load(path):
     return from_dict(data)
 
 
+# Designs that ship with the kit beside the game's own sprites (#v2.9.0):
+# HeroDev999's and LadyOfDynamite's, from the artists' own library. Plain
+# drawing files, read with `load` like any other; PyInstaller packs the
+# folder, and a frozen module's `__file__` points inside the bundle.
+SEEDS = Path(__file__).resolve().parent / "seeds"
+
+
+def bundled_designs():
+    """[(key, drawing)] for every design in `SEEDS`, key "artist/name". A file
+    that does not read is skipped: a broken seed must not stop the kit."""
+    out = []
+    for path in sorted(SEEDS.glob("*.json")):
+        try:
+            drawing = load(path)
+        except CorruptDrawing:
+            continue
+        out.append((f"{drawing.artist}/{drawing.name}", drawing))
+    return out
+
+
 def _slug(text):
     return re.sub(r"[^a-z0-9_-]+", "_", text.lower()).strip("_") or "drawing"
 
@@ -249,6 +269,21 @@ class Library:
         for drawing in engine_io.import_all():
             self.add(drawing)
         return self.drawings
+
+    def seed_designs(self, offered=()):
+        """Add each bundled design not `offered` before (#v2.9.0), unless a
+        drawing of the same name by the same artist is already here. Returns
+        the keys offered now, for the caller to remember: a design the artist
+        deleted is not put back on the next start."""
+        have = {(d.artist, d.name) for d in self.drawings}
+        new = []
+        for key, drawing in bundled_designs():
+            if key in offered:
+                continue
+            new.append(key)
+            if (drawing.artist, drawing.name) not in have:
+                self.add(drawing)
+        return new
 
     def seed_missing_kinds(self):
         """Add shipped kinds this library does not have yet (#v2.7.0): a

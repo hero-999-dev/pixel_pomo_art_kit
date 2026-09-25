@@ -9,9 +9,11 @@ cell, so it cannot be mistaken for a SELECT rectangle.
   line's length;
 * a **horizontal** line on the top edge of row `r` does the same for columns.
 
-MIRROR paints both sides live. STICK uses the same line, and when it is
-placed it copies the `length` rows (vertical) or columns (horizontal) from
-one side onto the other — a strip symmetry stamp.
+MIRROR paints both sides live.
+
+REVERSE (#v2.9.0, in STICK's place) needs no line: it takes the SELECT
+rectangle, turns it over - across the X axis, the Y axis or both - and
+copies it beside itself in one of eight directions, a chosen distance away.
 """
 from dataclasses import dataclass
 
@@ -84,59 +86,72 @@ class Bar:
         return Bar(self.orientation, self.length, col, row)
 
 
-def stamp_across(drawing, bar):
-    """Copy the `length` span across `bar`: left → right for a vertical line,
-    top → bottom for a horizontal one. Empty cells wipe their twins, so the
-    strip on the far side becomes the true mirror. Returns the cells written."""
-    first, last = bar.span()
-    written = []
-    if bar.orientation == VERTICAL:
-        for r in range(first, last + 1):
-            for c in range(bar.col):
-                twin = bar.mirror(c, r)
-                if twin is None:
-                    continue
-                tc, tr = twin
-                drawing.paint(tc, tr, drawing.get(c, r))
-                written.append((tc, tr))
-    else:
-        for c in range(first, last + 1):
-            for r in range(bar.row):
-                twin = bar.mirror(c, r)
-                if twin is None:
-                    continue
-                tc, tr = twin
-                drawing.paint(tc, tr, drawing.get(c, r))
-                written.append((tc, tr))
-    return written
+OFF, MIRROR, REVERSE = "off", "mirror", "reverse"
+MODES = (OFF, MIRROR, REVERSE)
+# STICK was the third mode until #v2.9.0; a settings file may still name it,
+# and the window opens with symmetry OFF when it does.
 
 
-OFF, MIRROR, STICK = "off", "mirror", "stick"
-MODES = (OFF, MIRROR, STICK)
+# ---- REVERSE (#v2.9.0) --------------------------------------------------------
+#
+# The axis the block is turned over ACROSS, as in "x eksenine göre": across
+# the X axis the rows swap (upside down), across the Y axis the columns swap
+# (left <-> right), across both it is turned half round.
+AXIS_X, AXIS_Y, AXIS_XY = "x", "y", "xy"
+AXES = (AXIS_X, AXIS_Y, AXIS_XY)
+
+# Where the copy goes, as a step in (columns, rows): screen rows grow downward.
+DIRECTIONS = {
+    "up_left": (-1, -1), "up": (0, -1), "up_right": (1, -1),
+    "left": (-1, 0), "right": (1, 0),
+    "down_left": (-1, 1), "down": (0, 1), "down_right": (1, 1),
+}
+
+# How the distance is given: one number for both steps, or X and Y apart.
+SPACING_SAME, SPACING_XY = "same", "xy"
+SPACINGS = (SPACING_SAME, SPACING_XY)
+MAX_GAP = 256
 
 
-def stick(orientation, length, col, row):
-    """Kept for older tests: a run of `length` cells from the click. STICK
-    in the editor is a between-pixel strip-mirror now (#v2.7.0); this helper
-    is the previous paint-a-run geometry."""
-    if orientation not in ORIENTATIONS:
-        raise ValueError(f"orientation must be one of {ORIENTATIONS}, got {orientation!r}")
-    length = max(MIN_LENGTH, min(MAX_LENGTH, int(length)))
-    if orientation == HORIZONTAL:
-        return [(col + i, row) for i in range(length)]
-    return [(col, row + i) for i in range(length)]
+def turned(cells, axis):
+    """`cells` (rows of values) turned over across `axis`, as a new block."""
+    if axis not in AXES:
+        raise ValueError(f"axis must be one of {AXES}, got {axis!r}")
+    rows = [list(line) for line in cells]
+    if axis in (AXIS_Y, AXIS_XY):
+        rows = [line[::-1] for line in rows]
+    if axis in (AXIS_X, AXIS_XY):
+        rows = rows[::-1]
+    return rows
 
 
-def expand_stick(orientation, length, cells):
-    """Every cell of `cells` grown into its stick, in order, no duplicates."""
-    out = []
-    seen = set()
-    for c, r in cells:
-        for cell in stick(orientation, length, c, r):
-            if cell not in seen:
-                seen.add(cell)
-                out.append(cell)
-    return out
+def reverse_corner(selection, direction, gap_x, gap_y):
+    """The top-left cell of the copy of `selection` (c0, r0, c1, r1,
+    inclusive) sent toward `direction`, with `gap_x` empty columns and
+    `gap_y` empty rows between it and the original. 0 is right beside it.
+    A step that is 0 in one direction (a straight arrow) ignores that gap."""
+    if direction not in DIRECTIONS:
+        raise ValueError(f"direction must be one of {tuple(DIRECTIONS)}, got {direction!r}")
+    c0, r0, c1, r1 = selection
+    w, h = c1 - c0 + 1, r1 - r0 + 1
+    dc, dr = DIRECTIONS[direction]
+    gap_x = max(0, min(MAX_GAP, int(gap_x)))
+    gap_y = max(0, min(MAX_GAP, int(gap_y)))
+    return c0 + dc * (w + gap_x), r0 + dr * (h + gap_y)
+
+
+def reverse_copy(drawing, selection, axis, direction, gap_x, gap_y):
+    """Stamp the turned-over copy of `selection` onto `drawing`. Empty cells
+    of the block leave what is under them, as a paste does. Returns
+    (col, row, w, h, dropped): where the copy went and how many of its
+    painted cells fell outside the drawing."""
+    cells, w, h = drawing.region(*selection)
+    block = turned(cells, axis)
+    col, row = reverse_corner(selection, direction, gap_x, gap_y)
+    dropped = sum(1 for dr, line in enumerate(block) for dc, v in enumerate(line)
+                  if v is not None and not drawing._inside(col + dc, row + dr))
+    drawing.stamp(block, col, row)
+    return col, row, w, h, dropped
 
 
 def expand(bar, cells):

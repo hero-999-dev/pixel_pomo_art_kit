@@ -16,6 +16,7 @@ on every platform. The two exceptions are documented where they live:
   a native control and ignores `bg`, so every ready colour rendered as a white
   pill (#v2.4.0 "ready colours gözükmüyor hepsi beyaz").
 """
+import math
 import sys
 import tkinter as tk
 from tkinter import ttk
@@ -157,8 +158,9 @@ def dark_title_bar(window):
 
 
 def icon(kind, size, colour, master=None):
-    """A small glyph drawn smooth: "left", "right", "down" (solid triangles)
-    or "close" (an X), `size` px square, in `colour` (#rrggbb), on a
+    """A small glyph drawn smooth: "left", "right", "down" (solid triangles),
+    "close" (an X), "square" (an outline) or "arrow_<direction>" (an arrow,
+    one of symmetry.DIRECTIONS), `size` px square, in `colour` (#rrggbb), on a
     see-through ground - a PhotoImage, or None with no Pillow to draw it.
 
     Drawn at four times the size and scaled down, so its slanted edges are
@@ -179,6 +181,23 @@ def icon(kind, size, colour, master=None):
         w = max(k, round(big * 0.13))
         pen.line((m, m, big - m, big - m), fill=rgb + (255,), width=w)
         pen.line((m, big - m, big - m, m), fill=rgb + (255,), width=w)
+    elif kind == "square":
+        w = max(k, round(big * 0.09))
+        pen.rectangle((m * 1.4, m * 1.4, big - m * 1.4, big - m * 1.4), outline=rgb + (255,), width=w)
+    elif kind.startswith("arrow_"):
+        # REVERSE's eight arrows (#v2.9.0): a shaft and a head, pointing
+        # right and turned to the direction - one drawing, so the diagonals
+        # are the same arrow as the straight ones, not a squashed copy.
+        angle = {"right": 0, "down_right": 45, "down": 90, "down_left": 135, "left": 180,
+                 "up_left": 225, "up": 270, "up_right": 315}[kind[len("arrow_"):]]
+        mid, r = big / 2, (big - 2 * m) / 2
+        cos, sin = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+
+        def at(x, y):
+            return (mid + r * (x * cos - y * sin), mid + r * (x * sin + y * cos))
+        pen.polygon([at(-0.95, -0.16), at(0.15, -0.16), at(0.15, 0.16), at(-0.95, 0.16)],
+                    fill=rgb + (255,))
+        pen.polygon([at(0.05, -0.6), at(1.0, 0), at(0.05, 0.6)], fill=rgb + (255,))
     else:
         lo, hi, mid = m, big - m, big / 2
         reach = (hi - lo) * 0.42                    # half the triangle's depth
@@ -260,6 +279,23 @@ class held_paint:
                 # not RDW_ERASE, which would blank every widget for the moment
                 # before Tk repaints it: the very flash this is here to avoid.
                 user32.RedrawWindow(self._hwnd, None, None, 0x0400 | 0x0001 | 0x0080 | 0x0100)
+                # And once more when Tk has caught up (#v2.9.0, seventh test
+                # pass: the library opening showed the canvas's old picture
+                # where the list goes, until something happened to repaint
+                # it). Some of the layout - a canvas's embedded rows, mapped
+                # when the canvas next draws - only lands in Tk's idle work
+                # AFTER the redraw above, into a window Windows was not asked
+                # to paint again. Asking twice more, after that work and a
+                # beat later, costs one repaint and leaves nothing stale.
+                hwnd = self._hwnd
+
+                def again():
+                    try:
+                        user32.RedrawWindow(hwnd, None, None, 0x0400 | 0x0001 | 0x0080 | 0x0100)
+                    except Exception:
+                        pass
+                self._window.after_idle(again)
+                self._window.after(80, again)
             except Exception:
                 pass
         return False
@@ -308,6 +344,7 @@ class Button(tk.Label):
         self._hover = False
         self._pin = None      # (width, height) in pixels once pin_box() ran
         self._pin_img = None  # the 1x1 image that makes width/height mean pixels
+        self._peers = None    # buttons that share one point size (`same_size`)
         self.bind("<Enter>", self._enter)
         self.bind("<Leave>", self._leave)
         self.bind("<Button-1>", lambda e: self.invoke())
@@ -408,6 +445,14 @@ class Button(tk.Label):
     def _refit(self):
         if self._pin is None:
             return
+        if self._peers:
+            # The size the tightest of the row can have, for all of them.
+            pinned = [b for b in self._peers if b._pin is not None]
+            spec = min((fit_bold(b.cget("text"), b._pin[0], master=b) for b in pinned),
+                       key=lambda f: f[1])
+            for b in pinned:
+                tk.Label.configure(b, font=spec)
+            return
         tk.Label.configure(self, font=fit_bold(self.cget("text"), self._pin[0], master=self))
 
     def invoke(self):
@@ -418,6 +463,17 @@ class Button(tk.Label):
 def button(parent, text, command, **kw):
     btn = Button(parent, text, command, **kw)
     return btn
+
+
+def same_size(*buttons):
+    """One point size for a row of pinned buttons: the largest at which every
+    one of them fits (#v2.9.0: WITH GRID / WITHOUT GRID / LOOK, "aynı fontta
+    olsun"). On its own each would shrink only as far as its own word needs,
+    and a row of equal boxes would carry two or three sizes."""
+    for b in buttons:
+        b._peers = buttons
+    if buttons:
+        buttons[0]._refit()
 
 
 def set_pressed(btn, pressed):

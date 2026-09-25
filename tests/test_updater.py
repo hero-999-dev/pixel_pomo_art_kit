@@ -135,3 +135,23 @@ class DownloadAndStageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CertificatesTest(unittest.TestCase):
+    """v2.7 on macOS: "Could not reach GitHub ... CERTIFICATE_VERIFY_FAILED".
+    A frozen Mac build has no certificate store; certifi's travels with it."""
+
+    def test_requests_carry_certifis_store(self):
+        from unittest import mock
+        import ssl
+        seen = {}
+
+        def fake(req, timeout=None, context=None):
+            seen["context"] = context
+            raise OSError("stop here")
+
+        with mock.patch.object(updater.urllib.request, "urlopen", side_effect=fake):
+            with self.assertRaises(OSError):
+                updater.check()
+        self.assertIsInstance(seen["context"], ssl.SSLContext)
+        self.assertGreater(len(seen["context"].get_ca_certs()), 50, "Mozilla's store, loaded")

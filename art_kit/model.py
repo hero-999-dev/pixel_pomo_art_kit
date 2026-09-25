@@ -173,6 +173,48 @@ class Drawing:
             self.cells[r][c] = value
             stack.extend([(c + 1, r), (c - 1, r), (c, r + 1), (c, r - 1)])
 
+    def colour_of(self, value):
+        """What a cell value LOOKS like, as RGBA: a palette letter through the
+        palette, a raw colour as itself, None for an empty cell."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return self.palette.colors().get(value)
+        return tuple(value)
+
+    def cells_coloured(self, rgba, region=None):
+        """Every (col, row) whose cell looks like `rgba` - however it is
+        stored, letter or raw - inside `region` (c0, r0, c1, r1, inclusive)
+        or the whole grid."""
+        c0, r0, c1, r1 = region if region is not None else (0, 0, self.width - 1, self.height - 1)
+        c0, r0 = max(0, c0), max(0, r0)
+        c1, r1 = min(self.width - 1, c1), min(self.height - 1, r1)
+        rgba = tuple(rgba)
+        palette = self.palette.colors()
+        looks = {}
+        found = []
+        for r in range(r0, r1 + 1):
+            line = self.cells[r]
+            for c in range(c0, c1 + 1):
+                v = line[c]
+                if v is None:
+                    continue
+                key = v if isinstance(v, str) else tuple(v)
+                seen = looks.get(key)
+                if seen is None:
+                    seen = looks[key] = (palette.get(v) if isinstance(v, str) else key) == rgba
+                if seen:
+                    found.append((c, r))
+        return found
+
+    def swap_colour(self, rgba, value, region=None):
+        """SWAP (#v2.9.0): every cell that looks like `rgba` becomes `value`.
+        Returns how many cells were changed."""
+        cells = self.cells_coloured(rgba, region)
+        for c, r in cells:
+            self.cells[r][c] = value
+        return len(cells)
+
     def resize(self, cols, rows):
         """Pad with empty cells right/below, or crop right/below. Engine
         flowers stay 16 wide; trees and pets to come get whatever they need."""

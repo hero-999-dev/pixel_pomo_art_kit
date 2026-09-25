@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import ssl
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -56,13 +57,31 @@ class Release:
         return f"Release({self.tag}, newer={self.is_newer})"
 
 
+def _open(req, timeout):
+    """`urlopen` with a certificate store that is always there.
+
+    A frozen Mac build has no certificates of its own: python.org's Python
+    looks for them in a folder its installer fills, and a bundled app never
+    ran that installer - so every HTTPS request failed with
+    CERTIFICATE_VERIFY_FAILED, "unable to get local issuer certificate", and
+    UPDATE said it could not reach GitHub (#v2.9.0, an artist's report from
+    macOS on v2.7). `certifi` ships Mozilla's store inside the build; without
+    it, the system's default is used, as before."""
+    try:
+        import certifi
+        context = ssl.create_default_context(cafile=certifi.where())
+    except (ImportError, OSError, ssl.SSLError):
+        context = None
+    return urllib.request.urlopen(req, timeout=timeout, context=context)
+
+
 def check(timeout=8, opener=None):
     """The latest release, or raises (URLError, ValueError, OSError). The
     caller decides whether that is worth a dialog — on a startup check it is
     not, on a button press it is."""
     req = urllib.request.Request(API, headers={"User-Agent": USER_AGENT,
                                                "Accept": "application/vnd.github+json"})
-    opener = opener or urllib.request.urlopen
+    opener = opener or _open
     with opener(req, timeout=timeout) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     return Release(data)
@@ -74,7 +93,7 @@ def download(url, dest, progress=None, opener=None, timeout=30):
     download never leaves a half zip under the real name."""
     dest = Path(dest)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    opener = opener or urllib.request.urlopen
+    opener = opener or _open
     tmp = dest.with_name(dest.name + ".part")
     with opener(req, timeout=timeout) as resp, open(tmp, "wb") as out:
         total = int(resp.headers.get("Content-Length") or 0)

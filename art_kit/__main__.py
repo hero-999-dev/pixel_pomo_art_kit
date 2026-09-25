@@ -47,6 +47,8 @@ def main():
     library.seed_from_engine()
     library.seed_missing_kinds()  # bugs into a library that predates them (#v2.7.0)
     settings = Settings(data / "settings.json")
+    # HeroDev999's and LadyOfDynamite's designs, once each (#v2.9.0)
+    settings.offer_designs(library.seed_designs(settings.offered_designs))
     root = tk.Tk()
     root.geometry("1280x820")
     root.minsize(980, 640)

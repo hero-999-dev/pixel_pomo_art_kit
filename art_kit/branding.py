@@ -8,6 +8,7 @@ window icon is built at run time with no image file to bundle, and the
 The grid itself is drawn in the kit - the app's own icon is a Pixel Pomo
 drawing, exported and pasted in here, which is the point.
 """
+import sys
 from pathlib import Path
 
 from art_kit.raster import photo
@@ -87,13 +88,62 @@ def _rgba(h):
 def apply_window_icon(root):
     """Set the title-bar / dock icon. `iconphoto` takes a PhotoImage on every
     platform (Windows also accepts .ico via iconbitmap, but this needs no
-    file). A failure is cosmetic and swallowed."""
+    file). A failure is cosmetic and swallowed.
+
+    On a Mac this image IS the Dock icon, in place of the bundle's .icns, and
+    the Dock draws it at up to 256 px on a Retina screen. It was the bare
+    sprite at 128 px at most, stretched and blurred there ("the icon does
+    look a bit blurry in my dock", #v2.9.0). A Mac gets the .icns picture
+    instead - the sprite on its matcha tile - at 1024 px, scaled by whole
+    pixels, so it is sharp and matches the icon in Finder."""
     try:
-        images = [photo(icon_grid(), scale=s, master=root) for s in (1, 2, 4)]
+        if sys.platform == "darwin":
+            from art_kit import raster
+            images = [raster.image_photo(mac_tile(1024), master=root)]
+        else:
+            images = [photo(icon_grid(), scale=s, master=root) for s in (1, 2, 4)]
         root._icon_images = images  # keep them alive for the window's lifetime
         root.iconphoto(True, *images)
     except Exception:
         pass
+
+
+def _render(grid, size):
+    """The grid as a `size`-pixel square image, every cell a block of pixels
+    (NEAREST): scaled, never smoothed."""
+    from PIL import Image
+    # From the grid's own dimensions: ICON was 16x16 and is 32x32 now, and a
+    # literal here would have silently cropped it to the top-left corner.
+    h, w = len(grid), len(grid[0])
+    img = Image.new("RGBA", (w, h))
+    img.putdata([px if px else (0, 0, 0, 0) for row in grid for px in row])
+    return img.resize((size, size), Image.NEAREST)
+
+
+def mac_tile(size):
+    """The macOS icon at `size` px: the sprite on a rounded matcha tile,
+    inset the way Apple's own icons are.
+
+    Drawn afresh at each size rather than shrunk from the 1024 one: Pillow's
+    .icns writer shrinks with a smoothing filter, which is what made the small
+    sizes soft. The sprite is laid on at the largest whole number of pixels a
+    cell that fits three quarters of the tile, so every cell stays a crisp
+    block; 16 px and 32 px icons cannot hold a 32-cell sprite whole, and those
+    two alone are shrunk."""
+    from PIL import Image, ImageDraw
+    grid = icon_grid()
+    cells = len(grid[0])
+    tile = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).rounded_rectangle(
+        (0, 0, size - 1, size - 1), radius=round(size * 200 / 1024), fill=(0x1A, 0x24, 0x20, 255))
+    per_cell = (size * 3 // 4) // cells
+    if per_cell >= 1:
+        sprite = _render(grid, per_cell * cells)
+    else:
+        sprite = _render(grid, cells * 4).resize((size * 3 // 4,) * 2, Image.LANCZOS)
+    off = (size - sprite.width) // 2
+    tile.alpha_composite(sprite, (off, off))
+    return tile
 
 
 def write_icon_files(out_dir):
@@ -102,33 +152,18 @@ def write_icon_files(out_dir):
     The Windows and Mac files are rendered from the same grid at the sizes each
     platform expects; the Mac one sits on the matcha window tile because a
     transparent 16-cell sprite floats oddly in the Dock beside rounded tiles."""
-    from PIL import Image
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    def render(grid, size):
-        # From the grid's own dimensions: ICON was 16x16 and is 32x32 now, and
-        # a literal here would have silently cropped it to the top-left corner.
-        h, w = len(grid), len(grid[0])
-        img = Image.new("RGBA", (w, h))
-        img.putdata([px if px else (0, 0, 0, 0) for row in grid for px in row])
-        return img.resize((size, size), Image.NEAREST)
-
+    render = _render
     plain = icon_grid()
     render(plain, 512).save(out_dir / "icon.png")
     render(plain, 256).save(
         out_dir / "icon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
-    # macOS: the sprite on a rounded matcha tile, inset the way Apple's own
-    # icons are.
-    tile = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
-    from PIL import ImageDraw
-    ImageDraw.Draw(tile).rounded_rectangle(
-        (0, 0, 1023, 1023), radius=200, fill=(0x1A, 0x24, 0x20, 255))
-    sprite = render(plain, 768)
-    tile.alpha_composite(sprite, (128, 128))
-    tile.save(out_dir / "icon.icns", sizes=[(16, 16), (32, 32), (64, 64), (128, 128),
-                                             (256, 256), (512, 512), (1024, 1024)])
+    # macOS: every size the .icns holds drawn on its own (`mac_tile`), handed
+    # to Pillow so it has nothing to shrink (#v2.9.0: "a bit blurry").
+    sizes = (16, 32, 64, 128, 256, 512)
+    mac_tile(1024).save(out_dir / "icon.icns", append_images=[mac_tile(n) for n in sizes])
     return [out_dir / n for n in ("icon.png", "icon.ico", "icon.icns")]
 
 

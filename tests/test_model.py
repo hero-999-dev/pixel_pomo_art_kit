@@ -167,6 +167,40 @@ class LabelAndBlocksTest(unittest.TestCase):
         self.assertEqual([d.get(c, 0) for c in range(4)], ["m", None, None, "m"])
 
 
+class SwapColourTest(unittest.TestCase):
+    """SWAP (#v2.9.0): every cell of one colour, however it is stored."""
+
+    def test_a_letter_and_a_raw_colour_that_look_alike_both_match(self):
+        d = Drawing.blank(4, 2, PAL)
+        d.paint(0, 0, "m")
+        d.paint(3, 1, PAL.colors()["m"])
+        d.paint(1, 0, "d")
+        self.assertEqual(d.cells_coloured(PAL.colors()["m"]), [(0, 0), (3, 1)])
+
+    def test_swap_changes_them_all_and_counts_them(self):
+        d = Drawing.blank(4, 2, PAL)
+        for c in range(4):
+            d.paint(c, 0, "l")
+        self.assertEqual(d.swap_colour(PAL.colors()["l"], "d"), 4)
+        self.assertEqual(d.cells[0], ["d"] * 4)
+        self.assertEqual(d.cells[1], [None] * 4, "empty cells are never a colour")
+
+    def test_a_region_keeps_it_inside(self):
+        d = Drawing.blank(4, 4, PAL)
+        for c in range(4):
+            d.paint(c, c, "l")
+        self.assertEqual(d.swap_colour(PAL.colors()["l"], "d", (0, 0, 1, 1)), 2)
+        self.assertEqual(d.get(2, 2), "l")
+        self.assertEqual(d.cells_coloured(PAL.colors()["d"], (-5, -5, 99, 99)), [(0, 0), (1, 1)],
+                         "a region past the edges is clipped")
+
+    def test_colour_of(self):
+        d = Drawing.blank(1, 1, PAL)
+        self.assertIsNone(d.colour_of(None))
+        self.assertEqual(d.colour_of("m"), PAL.colors()["m"])
+        self.assertEqual(d.colour_of([1, 2, 3, 255]), (1, 2, 3, 255))
+
+
 class HistoryTest(unittest.TestCase):
     def test_a_big_drawing_keeps_a_shorter_undo_memory_rather_than_all_of_it(self):
         """#v2.8.0: with no size cap, two hundred snapshots of a big drawing

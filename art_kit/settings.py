@@ -24,6 +24,8 @@ DEFAULTS = {
     # #v2.6.0
     "grid": {"c1": "232F28", "c2": "2A3A30"},  # the two checkerboard tones (theme.CHECKER)
     "show_grid": True,                          # the cell lines over the art
+    "show_rulers": True,    # x1 x2 ... over the canvas, y1 y2 ... down its left (#v2.9.0)
+    "offered_designs": [],  # bundled designs already put in the library once (#v2.9.0)
     "eraser": {"w": 1, "h": 1},
     # #v2.7.0
     "language": "en",
@@ -46,6 +48,11 @@ DEFAULTS = {
     "export_signature": "none",
     "export_metadata": True,
     "export_log": True,
+    # #v2.9.0 - REVERSE's panel, as the artist last left it: the axis the
+    # block is turned over across, the arrow, and the distance (one number,
+    # or X and Y apart). See symmetry.reverse_copy.
+    "reverse": {"axis": "y", "direction": "right", "spacing": "same",
+                "gap": 0, "gap_x": 0, "gap_y": 0},
 }
 
 
@@ -126,6 +133,21 @@ class Settings:
                                  "mode": mode if mode is not None else current["mode"]}
         self.save()
 
+    @property
+    def reverse(self):
+        merged = dict(DEFAULTS["reverse"])
+        for key, value in self.data["reverse"].items():
+            if key in merged and type(value) is type(merged[key]):
+                merged[key] = value
+        return merged
+
+    def set_reverse(self, **changes):
+        current = self.reverse
+        current.update({k: v for k, v in changes.items() if k in current})
+        if current != self.data["reverse"]:
+            self.data["reverse"] = current
+            self.save()
+
 
     # --- #v2.6.0 ---------------------------------------------------------------
     @property
@@ -156,6 +178,25 @@ class Settings:
     @show_grid.setter
     def show_grid(self, value):
         self.data["show_grid"] = bool(value)
+        self.save()
+
+    @property
+    def offered_designs(self):
+        return [k for k in self.data["offered_designs"] if isinstance(k, str)]
+
+    def offer_designs(self, keys):
+        keys = [k for k in keys if k not in self.data["offered_designs"]]
+        if keys:
+            self.data["offered_designs"] = self.offered_designs + keys
+            self.save()
+
+    @property
+    def show_rulers(self):
+        return bool(self.data["show_rulers"])
+
+    @show_rulers.setter
+    def show_rulers(self, value):
+        self.data["show_rulers"] = bool(value)
         self.save()
 
     @property

@@ -132,7 +132,10 @@ in: the **24 flowers** (12 species, 2 hand-authored models each), the five
 **Drawing Patch 1** houseplants Ola Górecka drew (anthurium, pilea ×2, sundew ×2 — read
 from the PNGs the game ships, since they are not generator output, and signed
 with her name as their artist), and the whole
-**forest** — 20 trees, 10 bushes, 5 rocks (#v34.8).
+**forest** — 20 trees, 10 bushes, 5 rocks (#v34.8). Four designs also come with
+the kit itself (v2.9.0, `art_kit/seeds/`): HeroDev999's **Space Eyes** 208×208
+and 13×13, and LadyOfDynamite's **Border** and **Ghostie**. They are added once,
+to a new library and to an existing one alike; one you delete stays deleted.
 
 Forest props are raw pixel art: no letter palette, no automatic rim, so what you
 paint is exactly what the garden draws. A tree's canvas size *is* its size in the
@@ -260,17 +263,46 @@ product — dark title bar on Windows included):
       it** (the cursor becomes a move cross over it), or **PLACE BAR** and
       click a new spot. The bar is drawn as an outline only — it is one cell
       wide. **Drag either end of the bar** to change its length on the canvas.
-    - **STICK** — every click paints `length` cells in one go, to the right
-      (`─ 180°`) or downward (`│ 90°`), starting at the click: "five purple
-      cells over there — click in line, five purple cells here". A ghost of
-      the run follows the cursor.
-  - **WITH GRID / WITHOUT GRID** — the cell lines over the drawing.
+    - **REVERSE** (v2.9.0, in STICK's place) — the SELECT rectangle,
+      turned over and copied beside itself. The button glows once something
+      is selected. Its panel: the **axis** it is turned over across (**X**
+      upside down, **Y** left ↔ right, **X+Y** half round), **eight arrows**
+      for the side the copy goes to, and on their right the **distance** —
+      **EQUAL**, one number of empty cells between the two (15 toward the
+      lower left is 15 across *and* 15 down; 0 is right beside it), or
+      **X · Y**, the two apart ("right 5, up 2"). A dashed blue outline on the
+      canvas shows where the copy will land, under the cell lines like the
+      art; **COPY REVERSED**, `R` or `Enter` writes it as one undo step, and
+      the original stays selected for the next arrow. The square in the
+      middle of the arrows (or the pressed arrow again) takes the direction
+      away. Moving or dropping the selection lets go of REVERSE, and so does
+      pressing it again.
+    - Each mode shows its own panel under the mode row; **OFF** shows none.
+  - **Under the colour square** (v2.9.0) — the ink NOW over the colour it
+    replaced (WAS: click it to go back), and the ink as H S B and R G B, each
+    typed into with Enter. A ring marks the ink on the square and a tick its
+    hue on the strip.
+  - **SWAP** (v2.9.0, the fifth tool) — click a pixel and every pixel of
+    that colour becomes the ink, as one undo step; a palette letter and a raw
+    colour that look the same count as one colour. With a SELECT rectangle
+    made first it keeps inside it. Hovering outlines what it would change.
+  - **WITH GRID / WITHOUT GRID / VIEW ONLY** — three equal buttons, one
+    pressed: the cell lines over the drawing, or none, or **VIEW ONLY** (was
+    LOOK) — the canvas shows the drawing as it looks (no checkerboard, no
+    cell lines, no symmetry line) and nothing is drawn, erased or resized on
+    it until VIEW ONLY or a GRID button is pressed again; zoom, pan and the
+    eyedropper still work.
+  - **Rulers** (v2.9.0) — x1, x2 … over the canvas and y1, y2 … down its
+    left, like a spreadsheet's headings — every cell its own box and label,
+    the type shrinking as the zoom goes out. The selection is shaded on them and the cell under the
+    pointer lit. Press **x1** to select all of column x1, **y1** all of row
+    y1, drag along a ruler for several; the corner box selects the whole
+    drawing. **COORDS**, in the bottom-right corner beside the cell and
+    colour readout, shows or hides them. Cells are counted from 1 everywhere
+    the kit shows a number.
   - **Bottom-right corner:** the two live previews — **1x** actual size and a
     fixed **squint**-test scale, both rendered through the same engine code
-    as every export — with **☐ LOOK** beside squint: ticked, the canvas shows
-    the drawing as it looks (no checkerboard, no cell lines, no symmetry line)
-    and nothing is drawn, erased or resized on it until it is unticked; zoom,
-    pan and the eyedropper still work. Then the drawing's **W × H** (click it
+    as every export. Then the drawing's **W × H** (click it
     to resize; one undo step), **UPDATE** (see above), and **GUIDE** (was
     HELP), which lays every button and key over the window, ends with how
     your work is protected, names the folder your drawings are in, and closes
@@ -278,12 +310,13 @@ product — dark title bar on Windows included):
 
 Keyboard: `Ctrl+S` save, `Ctrl+Z` undo, `Ctrl+Y` / `Ctrl+Shift+Z` redo,
 `Ctrl+N` new drawing, `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy / cut / paste the
-selection, `Enter` drop a floating block, `Delete` clear the selection, arrow
-keys nudge the block, `b` / `e` / `f` / `s` draw/erase/fill/select, `m`
-symmetry OFF → MIRROR → STICK, `+` / `-` zoom, `F1` help, and — in the TEST
+selection, `Enter` drop a floating block (under REVERSE: copy the selection
+reversed), `Delete` clear the selection, arrow
+keys nudge the block, `b` / `e` / `f` / `s` / `c` draw/erase/fill/select/swap, `m`
+symmetry OFF → MIRROR → REVERSE, `r` copy reversed (under REVERSE), `+` / `-` zoom, `F1` help, and — in the TEST
 build only — `F12`, a snapshot (the window as it is, plus the zoom, pane,
 camera and drawing behind it, saved as `snapshots/snap-<time>.png` and `.json`
-in the data folder, for showing what went wrong). Every heading, menu, dialog
+in the data folder, for showing what went wrong; click the “snapshot” message in the top-right corner to see the file in Explorer). Every heading, menu, dialog
 and message follows LANGUAGE — English, Türkçe, Polski, Deutsch — except the
 GUIDE's own rows, which are still English — its last part, how your work is
 protected, follows the language too. Every dialog opens where it belongs,
@@ -416,18 +449,18 @@ hand-off script moves it over `sys.executable`, which here would leave a
 `.github/workflows/release.yml`; pushing `main` alone publishes nothing.
 
 ```powershell
-git commit -am "v2.8.0: ..."
-git tag -a v2.8.0 -m "v2.8.0"     # -a matters: --follow-tags pushes
+git commit -am "v2.9.0: ..."
+git tag -a v2.9.0 -m "v2.9.0"     # -a matters: --follow-tags pushes
 git push origin main --follow-tags  # annotated tags only, and a
                                     # lightweight tag would never reach CI
 ```
 
 CI then builds Windows and both macOS binaries from that tag and publishes all
-three to the release. Only after that does anyone's UPDATE button see v2.8.0.
+three to the release. Only after that does anyone's UPDATE button see v2.9.0.
 
 ## Tests
 
-364 tests, all passing:
+412 tests, all passing:
 
 ```
 python -m unittest discover -s tests -v

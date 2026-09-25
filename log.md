@@ -4,6 +4,316 @@ What was built, round by round. Newest first.
 
 ---
 
+## v2.9.0 — ninth test pass: HeroDev999's and LadyOfDynamite's designs ship with the kit
+**Date:** 2026-09-25 · `VERSION` 2.9.0, released from this commit
+
+Prompt (verbatim):
+
+> simdi hero devin tasarimlari ila lady dynamite tasarimlari , copy siberia degil !, yeni versiyonda hazir tema
+> olarak yüklensin olanin yaninda pushlayalim
+
+- **Four designs come with the kit**, beside the game's sprites and Drawing
+  Patch 1: HeroDev999's Space Eyes 208x208 and Space Eyes 13x13, and
+  LadyOfDynamite's Border and Ghostie - copied from the artists' own test
+  library into `art_kit/seeds/`, packed by the spec. Not the Copy Siberian
+  study, which is nobody's signed work.
+- **Once each.** On start `Library.seed_designs` adds every bundled design the
+  library has not been offered before, unless a drawing of the same name by
+  the same artist is already in it, and `settings.offered_designs` remembers
+  what was offered - so a new library gets all four, the artists' own
+  library gets no twins, and a design deleted stays deleted.
+- `VERSION` is 2.9.0.
+
+---
+
+## v2.9.0 (in progress) — eighth test pass: an artist's feedback from macOS
+**Date:** 2026-09-25 · not tagged yet
+
+Prompt (verbatim), passing on an artist's message and four screenshots
+(`Pixel Pomo/Screenshots/Zrzut_ekranu_2026-09-21_*`):
+
+> pushlamadan önce su feedbacklere bakalim , Hey, I downloaded the 2.7 version of the art kit (on Mac OS). It looks
+> way better now. the icon does look a bit blurry in my dock. I clicked update and got this popup. Polish version
+> looks nice. I think all elements are already in and work great, i would only add one tiny bit. in the color panel
+> when i klick, i can see the color changing, but i wish sth like this was in the art kit. the screen is from
+> photoshop.
+
+- **The Dock icon was the window's, and small.** The screenshot's Dock icon
+  is the bare tomato and brush, without the matcha tile of the .icns: on a
+  Mac, Tk's `iconphoto` replaces the bundle's icon in the Dock, and it was
+  given the sprite at 128 px at most, which a Retina Dock stretches. A Mac
+  now gets the .icns picture - `branding.mac_tile` - at 1024 px. And the
+  .icns itself was soft below 1024: Pillow's writer shrinks the one image it
+  is given with a smoothing filter (200-odd colours in every smaller size,
+  measured). Every size is drawn on its own now, the sprite at a whole
+  number of pixels a cell, and handed over as `append_images`: 10 colours in
+  each, crisp. The 32 px one cannot hold a 32-cell sprite whole and is the
+  one size still shrunk. `assets/icon.icns` regenerated.
+- **UPDATE on a Mac: CERTIFICATE_VERIFY_FAILED.** python.org's Python finds
+  certificates in a folder its installer fills; a bundled app never ran that
+  installer, so every HTTPS request failed "unable to get local issuer
+  certificate". The updater opens its requests with `certifi`'s store
+  (`updater._open`), and both workflows install certifi so PyInstaller packs
+  it; without certifi the system default is used, as before.
+- **The colour panel, as Photoshop's picker.** Under the shade square: the ink
+  NOW over the colour it replaced (WAS - click it to go back), and the ink as
+  H° S% B% and R G B, each typed into with Enter; a bad entry is put back, a
+  number too big is clamped. A drag across the square is one change, so WAS
+  keeps the colour from before the drag. A ring marks the ink on the square
+  and a tick its hue on the strip, and a colour from anywhere else - a
+  swatch, the eyedropper, a typed code - brings the strip round to its hue
+  (a grey has none, and leaves it).
+
+---
+
+## v2.9.0 (in progress) — seventh test pass: the snapshot's file, and a stale library
+**Date:** 2026-09-25 · not tagged yet
+
+Prompt (verbatim):
+
+> snapshotlarda bug yakalayinca sag üstte snapshot yaziyor ona basinca direk lokasyonunu acmasini isterim
+> snapshptun, birde üc nokta ile paneli acip kapamak isterken yavasliyor yada takiliyor anlik, sonrasinda
+> takilma yok oluyor, sanki resimler menüden sonra hareket ediyor snapshot ile yakalamaya calistim emin defilim
+> basardim mi
+
+- **The snapshot message opens its file.** After F12, the "snapshot ..."
+  message in the top-right corner is a link: the pointer turns to a hand over
+  it, and a click shows the PNG in Explorer, selected (`paths.reveal`) - the
+  JSON when the picture could not be taken. Any later message clears the
+  link. `_set_status` takes an `action` for this.
+- **The library opening left the canvas's old picture behind.** The second
+  snapshot caught it: with the library open again, where its list should
+  have been was the canvas as it looked while the library was folded - the
+  rulers x1 ... x9 and y1 ... y16 and the drawing's left end, from 200 px
+  to the left. The Python side of the fold takes ~20 ms, measured on a copy
+  of this library (77 drawings); the stall is the screen. `held_paint` stops
+  Windows repainting while the layout moves and asks for one repaint at the
+  end - but the list's rows are a canvas's embedded windows, mapped when the
+  canvas next draws, which is in Tk's idle work AFTER that repaint, and
+  nothing asked Windows to paint them again until something else did. It
+  asks twice more now: once Tk's idle work is done, and 80 ms later. This
+  session cannot see the screen, so the fix is by the cause; an F12 of the
+  moment is the check.
+- **...and it was still there.** A screenshot from the rebuilt kit showed
+  the same stale picture in the same place - only the list, with the ALL row
+  over it and NEW DRAWING under it repainted. So the repaint requests never
+  reached the list at all: it is a frame embedded in a canvas, back in Tk's
+  eyes but never painted on screen. Once the library is open,
+  `_show_list_afresh` hides the embedded frame and gives it back, and redraws
+  the whole list canvas - a window Tk shows afresh is painted. Still judged
+  by the cause, not by eye: the next F12 or screenshot is the check.
+- **...then it came late instead.** The next screenshot had no stale picture
+  - and no list either: an empty column, the rows arriving after it. Both
+  were the same delay, seen two ways. The library's body was PACKED, and a
+  fold unpacked it: every row widget taken off the screen, and every unfold
+  mapping hundreds of them again, painted whenever Tk got to them. The body
+  is PLACED now, and a fold slides it out of sight to the left (x -220 in an
+  18 px rail) - still mapped, so opening the library only uncovers rows that
+  never went anywhere. The hide-and-show of the step before is gone.
+
+---
+
+## v2.9.0 (in progress) — sixth test pass: SWAP, one colour to another everywhere at once
+**Date:** 2026-09-25 · not tagged yet
+
+Prompt (verbatim):
+
+> how about an ability to select a color of pixels on the grid and change their color all at once,Also that I can
+> use select & change to change all cells with the same color at once
+> bunlari yaptik mi yapmadiysak yapalim
+
+Not built before - so built now.
+
+- **SWAP, the fifth tool** (`C`). Click a pixel: every pixel of that colour
+  becomes the ink, as one undo step, and the status corner says how many
+  and from which colour to which. A colour matches however it is stored -
+  a palette letter and a raw colour that look the same are the same colour
+  (`Drawing.colour_of`, `cells_coloured`, `swap_colour`). An empty pixel is
+  refused (there is no colour to swap), and so is a colour that is the ink
+  already; VIEW ONLY refuses it as it does every edit.
+- **Select & change.** A SELECT rectangle made first stays when SWAP is
+  picked, as it does for FILL, and SWAP then keeps inside it.
+- **It shows what it will change.** Hovering with SWAP outlines, in the
+  accent, every pixel on screen it would change - inside the selection if
+  there is one - from 4 px a cell up, and while there are no more than 3000
+  of them (past that it is a wall of outlines, and a slow one).
+- **Five equal tool boxes.** Shared out by the length of their words, FILL
+  was left 37 px and shrank to 6 pt in Turkish, Polish and German. Equal
+  fifths keep every English and Turkish tool at 9 pt.
+
+---
+
+## v2.9.0 (in progress) — fifth test pass: a heading selects its column or row
+**Date:** 2026-09-25 · not tagged yet
+
+Prompt (verbatim):
+
+> sey istiyorum hallolmus saolasin, x1e basinca yukarda tüm x1 satiri select olsun ayni sekilde y1 secersem de
+> öyle olsun
+
+(The fourth pass's overlap - rulers and the drawing's end running into each
+other under the camera's corner and centre anchors - had sorted itself out
+by then; measured on a copy of the artist's Untitled at every anchor and 13
+zooms, nothing overlapped.)
+
+- **Press x1, get column x1.** A heading on the top ruler selects the whole
+  column, one on the left ruler the whole row; dragged along the ruler, the
+  columns or rows from where the press started to the pointer, stopping at
+  the drawing's last one. The corner box between the rulers selects the whole
+  drawing. As a spreadsheet does. It switches to SELECT and lands a floating
+  block first, and does nothing under VIEW ONLY; a press past the drawing's
+  end selects nothing. The rulers wear a down arrow and a right arrow as
+  their pointer, the corner a hand.
+
+---
+
+## v2.9.0 (in progress) — fourth test pass: every cell its own heading, the arrows squared up
+**Date:** 2026-09-25 · not tagged yet
+
+Prompt (verbatim):
+
+> simdi reverse menüsündeki 9 yönün alt cizgisi copy reserved ile ayni olsun birde x ve y koordinatlari ne olursa
+> olsun tek sira sira gözüksün, tamam diyelim her piksel hattin karsiligi olsun inanilmaz derecede kücülürse de
+> kücülsün, excelde %100 ü nasil %1 e getirince oluyorsa onnun gibi genede tüm hatlara ayri cekiliyor
+
+- **The arrows end where COPY REVERSED does.** The 3 × 3 pad was 64 px of
+  fixed boxes beside a taller column; its rows now share out that column's
+  height, so its top meets the Distance line and its bottom COPY REVERSED's.
+- **Every cell keeps its own heading.** The rulers had labelled every 2nd,
+  5th, 10th ... cell once the cells got small. Now, like a spreadsheet zoomed
+  to its smallest, each column and row keeps its own box and its own label,
+  the type shrinking with the cells (one size for the whole ruler, the size
+  its longest label fits at) down to 2 px. Under 2 px a cell the boxes would
+  be a line on every pixel, so the ruler is left plain there.
+
+---
+
+## v2.9.0 (in progress) — third test pass: rulers, cells counted from 1, VIEW ONLY
+**Date:** 2026-09-25 · not tagged yet
+
+Prompt (verbatim):
+
+> birde simdi x1,x2,x3,x4,y1,y2,y3,koordinat kutulari eklensin sol tarafa ve üst tarafa microsoft exceldeki gibi
+> bunlari göster ve gizle butonu olsun,bu buton sag en altta olsun x ve y ve renk kisminin ciktigi yerin saginda
+> kalsin, x 20 , y 20 ,ve renk kodu kismi onun solunda ciksin, birde look yerine daha aciklayici bir isim
+> gelebilir acikcasi onu da degistirelim,
+
+- **Rulers.** A box per column over the canvas (x1, x2, ...) and per row down
+  its left (y1, y2, ...), like a spreadsheet's headings, following every
+  zoom and pan. Zoomed out past the room a label needs, they label every
+  2nd, 5th, 10th, 20th ... cell at a tick. The selection's columns and rows
+  are shaded on them and the cell under the pointer is lit. The left ruler
+  widens for a drawing whose longest label needs it. The canvas pane is laid
+  out on a grid now, rulers and scrollbars round the canvas.
+- **COORDS**, in the far right corner of the strip under the canvas, shows or
+  hides them (remembered as `show_rulers`); the cell and colour under the
+  cursor read just left of it.
+- **Cells are counted from 1**, everywhere the artist reads a number: the
+  rulers start at x1 / y1, so the readout (`x 1  y 1`), the row and column
+  counts and REVERSE's "copy at" do too. The drawing's own cells are still
+  0-based inside.
+- **LOOK is VIEW ONLY** (SADECE BAK, TYLKO WIDOK, NUR ANSICHT): the name says
+  what it does - the drawing shown, nothing drawn on it.
+
+---
+
+## v2.9.0 (in progress) — second test pass: REVERSE tightened, and letting go
+**Date:** 2026-09-25 · not tagged yet
+
+Prompt (verbatim):
+
+> simdi kopyalanin reversedde gridli gelmiyor ,gridsiz hali önizelemede oluyor onu düzeltelim, onun disinda
+> axisin altinda ok kisimlarinda yönü kapamak icin sadece select kalmasi icin mesela ortadaki kareye basma olsun
+> birde tasarimi söyle yapalim distance karsisina x y uyakliklari gelsin onu sikistiralim, eqial ve x y kalsin
+> altindaki bosluga copy reversed tasinsin , birde copy reversed tusuna bir tus atansin klavyede yapistirmasi
+> icin birde onun disinda select dedim, reverse dedim , sonra select kismini oynatttim alltaki reversed kismi
+> yok oldu tamam ama sagdaki reversed kismi aktif kaldi bu da tekrar secemememe neden oldu
+
+- **The preview is gridded.** The turned-over cells were a picture laid on
+  top of the cell lines, so the preview looked gridless next to the art it
+  would become. It goes under the lines now (`_under_grid_lines`) - and so
+  does a floating block, which had the same fault.
+- **The middle square takes the arrow away.** The square among the eight
+  arrows is a button: pressed, there is no direction - no preview, COPY
+  REVERSED greyed, only the selection left - and the hint asks for an arrow.
+  Pressing the pressed arrow again does the same. Remembered as `"none"`.
+- **Tighter.** The distance numbers sit on the Distance line itself (one box
+  under EQUAL, x and y under X · Y; the "cells" caption went to make room),
+  EQUAL / X · Y under them, and COPY REVERSED moved into the space under
+  those, beside the arrows. The panel is 121 px tall, was 145.
+- **R copies reversed**, beside Enter; only under REVERSE, and not while
+  typing in a field. The hint says so.
+- **REVERSE lets go when its selection goes.** Selecting, pressing REVERSE,
+  then dragging the selection lifted it off to move, and the preview went -
+  but REVERSE stayed pressed, and pressing a pressed mode did nothing, so it
+  could not be chosen again for the block once it was put down. Now the
+  moment the selection is gone (lifted, dismissed, cleared) REVERSE turns
+  itself off, and its button is pressed again when there is a new selection
+  to work on. Pressing REVERSE while it is on turns it off too. The
+  letting-go is not an undo step: the artist changed the selection, not the
+  mode.
+
+---
+
+## v2.9.0 (in progress) — first test pass: REVERSE in STICK's place, LOOK beside the grid
+**Date:** 2026-09-25 · not tagged yet
+
+Prompt (verbatim):
+
+> simdi versiyon 2.9 icin calismalara baslayacagiz, test uygulamasini gelistirerek devam edelim, stick kismini
+> gelistirecegiz simdi, sagdaki altta symmetry kisminda mirror yaninda stick kismi kaldirilsin yerine reverse
+> gelsin, su sekilde olsun, reverse basinca ( select kismina basinca ve sectikten sonra parlayacak), ve mirrora
+> basinca alttaki mirror panelinin yerine kendi panelini koyacak, ve ok isaretleri olacak sol, sag, üst, alt,sag
+> üst capraz, sol üst capraz, sag alt capraz, sol alt capraz,hangi yöne tersinin kopyalanacagini sececek
+> kullanici ve birde en sagda distance belirleme olacak mesela -> secildi mesafeye 1 sedcildi direk secimin
+> yanindan degil 1 mesafe uzagindan olacak ve ayriyetten koordinat vermek icin x ve y uzakligini da
+> belirleyebilecek kullanici mesela sol alti sectim 15 yazdim uzakliga 15 x ve 15 y sol caprazda olacak, ikinci
+> olarak mesafe belirleme sekli ise x ve y uzakligini belirlemek, sag 5 yukari 2 , ve reverse toolda secimi hangi
+> x eksanine göre tersi mi, y eksenine göre tersimi, hem x hem y eksenine göre tersimi bunlar da secilebilsin,
+> birde LOOK eklegidin kisim, with grid ve without grid kisminin sagina eklensin  ayni fontta olsun onlar gibi
+> calissin o kisim üce bölünsün,, symmetry de offa basinca alltaki mirrorun paneli kalksin,
+
+- **REVERSE, where STICK was.** The symmetry modes are OFF / MIRROR / REVERSE
+  (`m` cycles them). REVERSE works on the SELECT rectangle: it turns the block
+  over and copies it beside itself, as one undo step, leaving the original
+  where it was and still selected, so the next arrow makes another copy of
+  the same block. `symmetry.turned`, `reverse_corner` and `reverse_copy` are
+  the geometry, pure and tested on their own; STICK's `stick`,
+  `expand_stick` and `stamp_across` are gone with it, and a settings file
+  that still says `"stick"` opens with symmetry OFF.
+- **The button glows with a selection.** Nothing selected, REVERSE is an
+  ordinary button; the moment something is, it lights up (accent text on the
+  selected-row green); while it is the mode it is pressed. Pressing it with
+  nothing selected switches to SELECT, so the next drag makes the selection.
+- **Its panel.** The axis — **X** (across the X axis: upside down), **Y**
+  (across the Y axis: left ↔ right), **X+Y** (half round); the eight arrows,
+  drawn as icons like the ninth pass's triangles, round a square that stands
+  for the selection; on their right the distance — **EQUAL**, one number of
+  empty cells for both steps ("15 toward the lower left is 15 x and 15 y"),
+  or **X · Y** apart ("right 5, up 2"); a straight arrow greys out the
+  distance it has no use for. 0 is right beside the selection, 1 leaves one
+  empty cell. **COPY REVERSED** (or `Enter`) writes it; the line under it
+  says what the axis does, or asks for a selection. The panel's settings are
+  remembered in `settings.json` (`reverse`).
+- **Where it will land, before it does.** Under REVERSE, with a selection, the
+  canvas shows the turned-over cells where the copy will go inside a dashed
+  blue outline - blue, the informational colour, since unlike a floating
+  block it cannot be dragged. Cells that would fall off the drawing are not
+  shown, and after the copy the status corner counts them.
+- **Each mode its own panel, OFF none.** MIRROR's line, length and PLACE BAR
+  are MIRROR's panel; REVERSE's replaces it; OFF takes the panel away.
+  `_pin_chrome` lays both out while it measures, so a panel shown later is
+  not pinned to a box it never had.
+- **LOOK is the third of the grid row.** WITH GRID / WITHOUT GRID / LOOK, three
+  equal boxes and one point size between them (`theme.same_size`: the size
+  the tightest of the three fits at — 8 pt in English, where WITHOUT GRID is
+  the long one). One of the three is pressed: LOOK while it is on, and a GRID
+  button presses its way back out of it; LOOK again returns to the grid as it
+  was. The ☐ beside squint is gone, and "untick LOOK" in the status corner
+  reads "press LOOK again".
+
+---
+
 ## v2.8.0 — released
 **Date:** 2026-09-23 · tag `v2.8.0` · the three builds from `main` at `0863e99`
 

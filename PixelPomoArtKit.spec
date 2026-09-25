@@ -53,7 +53,10 @@ a = Analysis(
     [_SCRIPT],
     pathex=['.'],
     binaries=[],
-    datas=[(_GEN, '.')] + [(p, 'objects') for p in _PATCH],
+    # art_kit/seeds: the designs that ship with the kit (#v2.9.0, store.SEEDS)
+    datas=[(_GEN, '.')] + [(p, 'objects') for p in _PATCH]
+          + [(os.path.join(os.path.dirname(os.path.abspath(SPEC)), 'art_kit', 'seeds', '*.json'),
+              os.path.join('art_kit', 'seeds'))],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

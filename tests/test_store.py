@@ -265,3 +265,42 @@ class DrawingPatchSeedingTest(unittest.TestCase):
             self.assertTrue(all(d.artist == engine_io.PATCH_ARTIST for d in added))
             self.assertEqual(lib.seed_missing_kinds(), [], "and only once")
             self.assertEqual(lib.artists(), [engine_io.PATCH_ARTIST])
+
+
+class BundledDesignsTest(unittest.TestCase):
+    """#v2.9.0: HeroDev999's and LadyOfDynamite's designs ship with the kit -
+    not the Copy Siberian study, which is nobody's signed work."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.lib = store.Library(Path(self.tmp.name) / "library")
+
+    def test_the_bundle_is_the_two_artists_designs(self):
+        keys = [k for k, _d in store.bundled_designs()]
+        self.assertEqual(sorted(keys), ["HeroDev999/Space Eyes 13x13", "HeroDev999/Space Eyes 208x208",
+                                        "LadyOfDynamite/Border", "LadyOfDynamite/Ghostie"])
+        self.assertFalse([k for k in keys if "siberian" in k.lower()])
+
+    def test_they_are_added_once_and_saved(self):
+        offered = self.lib.seed_designs([])
+        self.assertEqual(len(offered), 4)
+        self.assertEqual({d.artist for d in self.lib.drawings}, {"HeroDev999", "LadyOfDynamite"})
+        again = store.Library(self.lib.root)
+        again.load_all()
+        self.assertEqual(len(again.drawings), 4, "written to disk")
+        self.assertEqual(again.seed_designs(offered), [], "offered before: not again")
+        self.assertEqual(len(again.drawings), 4)
+
+    def test_a_deleted_design_stays_deleted(self):
+        offered = self.lib.seed_designs([])
+        self.lib.remove(self.lib.drawings[0])
+        self.lib.seed_designs(offered)
+        self.assertEqual(len(self.lib.drawings), 3)
+
+    def test_a_library_that_already_has_one_gets_no_twin(self):
+        _key, border = [kd for kd in store.bundled_designs() if kd[0] == "LadyOfDynamite/Border"][0]
+        self.lib.add(border)
+        self.lib.seed_designs([])
+        self.assertEqual([d.name for d in self.lib.drawings].count("Border"), 1)
+        self.assertEqual(len(self.lib.drawings), 4)

@@ -228,6 +228,13 @@ INNER_W = TOOLS_W - 1 - PAD - SCROLLBAR_W  # minus the separator line, the left 
 SWATCH_COLS = 8
 PICKER_W, SV_H, HUE_H = INNER_W, 100, 14
 LIBRARY_W = 220
+# The rulers over and beside the canvas (#v2.9.0): their thickness, and the
+# pixel sizes their type runs between - full size, down to the smallest that
+# is still a mark rather than nothing.
+RULER_H = 16
+RULER_W = 30
+RULER_FONT_PX = 11
+RULER_MIN_FONT_PX = 2
 LIBRARY_RAIL = 18  # hamburger + scrollbar column (#v2.7.0, item 11)
 # The four edges of the grid are its resize grabs (#v2.8.0). Up to #v2.7.0
 # there was one, on the bottom-right corner, drawn as an accent triangle, and
@@ -262,7 +269,11 @@ HUGE_SIDE = 4096        # and beyond this many a side it says no: 60000 typed
                         # the window down with it
 ERASER_MAX = 64         # the eraser's own footprint, which is no drawing size
 
-TOOLS = ("draw", "erase", "fill", "select")
+TOOLS = ("draw", "erase", "fill", "select", "swap")
+# SWAP's preview outlines every matching cell on screen; past these it would
+# be a wall of outlines, and a slow one, so it is left out.
+SWAP_PREVIEW_MIN_ZOOM = 4
+SWAP_PREVIEW_MAX_CELLS = 3000
 AUTOSCROLL_MARGIN = 24  # px from the canvas edge at which a drag starts scrolling (#v2.6.0)
 
 
@@ -396,6 +407,7 @@ class ArtKitApp:
         self.settings = settings or Settings(library.root.parent / "settings.json")
         self.tool = self.settings.tool if self.settings.tool in TOOLS else "draw"
         self.ink = hex_to_rgba("D93645")  # a real colour; letters are engine-side
+        self._ink_was = self.ink            # the ink before the last colour change (#v2.9.0)
         self.zoom_level = DEFAULT_ZOOM
         self._histories = {}
         self._painting = False
@@ -416,10 +428,21 @@ class ArtKitApp:
         self._placing_bar = self.symmetry_mode == symmetry.MIRROR  # a bar has to be placed first
         self._dragging_bar = None  # (dcol, drow) grab offset while the bar is being moved
         self._resizing_bar = None  # the fixed end's axis coordinate while an end is dragged (#v2.6.0)
+        # REVERSE's panel (#v2.9.0): see `apply_reverse`
+        rev = self.settings.reverse
+        self._rev_axis = rev["axis"] if rev["axis"] in symmetry.AXES else symmetry.AXIS_Y
+        self._rev_direction = (rev["direction"] if rev["direction"] in symmetry.DIRECTIONS
+                               else None if rev["direction"] == "none" else "right")
+        self._rev_had_selection = False   # for REVERSE letting go when the selection goes
+        self._rev_spacing = rev["spacing"] if rev["spacing"] in symmetry.SPACINGS else symmetry.SPACING_SAME
+        self._rev_gap = max(0, min(symmetry.MAX_GAP, rev["gap"]))
+        self._rev_gap_x = max(0, min(symmetry.MAX_GAP, rev["gap_x"]))
+        self._rev_gap_y = max(0, min(symmetry.MAX_GAP, rev["gap_y"]))
         self._help = None
         self._update_release = None  # the newer Release, once a check has found one
         # #v2.6.0
         self.show_grid = self.settings.show_grid
+        self.show_rulers = self.settings.show_rulers   # the x / y rulers (#v2.9.0)
         eraser = self.settings.eraser
         self.eraser_size = (eraser["w"], eraser["h"])
         self.selection = None      # (c0, r0, c1, r1) inclusive, normalised
@@ -746,7 +769,8 @@ class ArtKitApp:
             return
         if self.tool == "select" and name != "select":
             self.commit_floating()
-            if name != "fill":
+            if name not in ("fill", "swap"):
+                # FILL fills it; SWAP keeps to it ("select & change")
                 self.clear_selection()
         self.tool = name
         self.settings.tool = name  # the last tool used is the one selected next time (item 12)
@@ -838,6 +862,10 @@ class ArtKitApp:
         self._draw_main()
 
     def set_show_grid(self, on):
+        if self.looking:
+            # WITH or WITHOUT GRID is a way back out of LOOK, as it is the
+            # button beside it (#v2.9.0).
+            self.set_looking(False)
         if bool(on) == self.show_grid:
             return
         self._record_state(self.GRID)
@@ -894,6 +922,10 @@ class ArtKitApp:
         # a swatch, a typed code and the shade square all go through here, and
         # Ctrl+Z has to take any of them back.
         self._record_state(self.INK, coalesce=coalesce)
+        if not coalesce:
+            # A new pick, not the next step of a drag: what it replaces is the
+            # "was" colour, the way a colour picker shows the one it opened on.
+            self._ink_was = self.ink
         self.ink = value
         self._refresh_ink_ui()
 
@@ -1332,22 +1364,26 @@ class ArtKitApp:
             return
         self._record_state(self.BAR)
         self.symmetry_mode = mode
-        # MIRROR and STICK share a between-pixel line. With no line yet the
+        # MIRROR paints across a between-pixel line. With no line yet the
         # next canvas click places it instead of painting (#v2.7.0, item 12).
-        self._placing_bar = mode in (symmetry.MIRROR, symmetry.STICK) and self.symmetry_bar is None
+        self._placing_bar = mode == symmetry.MIRROR and self.symmetry_bar is None
         self._dragging_bar = None
         self.settings.set_symmetry(self._sym_orientation, self._sym_length, mode)
+        if mode == symmetry.REVERSE and self.selection is None and self.tool != "select":
+            # REVERSE works on a selection, so with none yet the next drag on
+            # the canvas makes one.
+            self.set_tool("select")
         self._refresh_symmetry_ui()
         self._draw_main()
 
     def cycle_symmetry_mode(self):
-        """The `m` key: OFF -> MIRROR -> STICK -> OFF."""
+        """The `m` key: OFF -> MIRROR -> REVERSE -> OFF."""
         i = symmetry.MODES.index(self.symmetry_mode)
         self.set_symmetry_mode(symmetry.MODES[(i + 1) % len(symmetry.MODES)])
 
     def arm_symmetry_placement(self):
         """PLACE BAR: the next click moves the line (or places it)."""
-        if self.symmetry_mode in (symmetry.MIRROR, symmetry.STICK):
+        if self.symmetry_mode == symmetry.MIRROR:
             self._placing_bar = True
             self._refresh_symmetry_ui()
 
@@ -1376,8 +1412,6 @@ class ArtKitApp:
         self._record_state(self.BAR)
         self.symmetry_bar = symmetry.Bar(self._sym_orientation, self._sym_length, col, row)
         self._placing_bar = False
-        if self.symmetry_mode == symmetry.STICK:
-            self._stamp_stick()
         self._refresh_symmetry_ui()
         self._draw_main()
 
@@ -1394,18 +1428,90 @@ class ArtKitApp:
             self.symmetry_bar = self.symmetry_bar.moved_to(col, row)
             self._draw_main()
 
-    def _stamp_stick(self):
-        """STICK: copy the length-span across the line as one undo step."""
-        if self.history is None or self.symmetry_bar is None:
-            return
-        self.history.begin_stroke()
-        symmetry.stamp_across(self.history.current, self.symmetry_bar)
-        self.history.end_stroke()
-        if self.history.can_undo():
-            self._after_change()
-
     def _active_bar(self):
-        return self.symmetry_bar if self.symmetry_mode in (symmetry.MIRROR, symmetry.STICK) else None
+        return self.symmetry_bar if self.symmetry_mode == symmetry.MIRROR else None
+
+    # ---- REVERSE (#v2.9.0, first test pass) -----------------------------------
+    #
+    # "mirror yanında stick kısmı kaldırılsın yerine reverse gelsin": the
+    # selection, turned over across X, Y or both, copied toward one of eight
+    # arrows - right beside it, or a distance away (one number for both
+    # steps, or X and Y apart). The original and its selection stay put, so
+    # a second arrow makes a third copy of the same block.
+
+    def set_reverse_axis(self, axis):
+        if axis not in symmetry.AXES:
+            raise ValueError(f"axis must be one of {symmetry.AXES}, got {axis!r}")
+        self._rev_axis = axis
+        self.settings.set_reverse(axis=axis)
+        self._refresh_reverse_ui()
+        self._draw_overlays()
+
+    def set_reverse_direction(self, direction):
+        """One of the eight arrows, or None: no copy, only the selection."""
+        if direction is not None and direction not in symmetry.DIRECTIONS:
+            raise ValueError(f"direction must be one of {tuple(symmetry.DIRECTIONS)}, got {direction!r}")
+        self._rev_direction = direction
+        self.settings.set_reverse(direction=direction or "none")
+        self._refresh_reverse_ui()
+        self._draw_overlays()
+
+    def set_reverse_spacing(self, spacing):
+        if spacing not in symmetry.SPACINGS:
+            raise ValueError(f"spacing must be one of {symmetry.SPACINGS}, got {spacing!r}")
+        self._rev_spacing = spacing
+        self.settings.set_reverse(spacing=spacing)
+        self._refresh_reverse_ui()
+        self._draw_overlays()
+
+    def set_reverse_gap(self, gap=None, gap_x=None, gap_y=None):
+        """The distance: `gap` for EQUAL, `gap_x` / `gap_y` for X · Y."""
+        def clamp(v):
+            return max(0, min(symmetry.MAX_GAP, int(v)))
+        if gap is not None:
+            self._rev_gap = clamp(gap)
+        if gap_x is not None:
+            self._rev_gap_x = clamp(gap_x)
+        if gap_y is not None:
+            self._rev_gap_y = clamp(gap_y)
+        self.settings.set_reverse(gap=self._rev_gap, gap_x=self._rev_gap_x, gap_y=self._rev_gap_y)
+        self._refresh_reverse_ui()
+        self._draw_overlays()
+
+    def _reverse_gaps(self):
+        if self._rev_spacing == symmetry.SPACING_SAME:
+            return self._rev_gap, self._rev_gap
+        return self._rev_gap_x, self._rev_gap_y
+
+    def _reverse_target(self):
+        """(col, row, w, h) of where the copy would land, or None."""
+        if self.selection is None or self._rev_direction is None:
+            return None
+        c0, r0, c1, r1 = self.selection
+        col, row = symmetry.reverse_corner(self.selection, self._rev_direction, *self._reverse_gaps())
+        return col, row, c1 - c0 + 1, r1 - r0 + 1
+
+    def apply_reverse(self):
+        """COPY REVERSED / Enter: the turned-over copy, as one undo step."""
+        if self.history is None or self._look_refuses():
+            return False
+        if self.selection is None:
+            self._set_status(t("rev_select_first"), flash=True)
+            return False
+        if self._rev_direction is None:
+            self._set_status(t("rev_pick_arrow"), flash=True)
+            return False
+        self.history.begin_stroke()
+        col, row, _w, _h, dropped = symmetry.reverse_copy(
+            self.history.current, self.selection, self._rev_axis, self._rev_direction,
+            *self._reverse_gaps())
+        if self.history.end_stroke():
+            self._after_change()
+        message = t("rev_done", col=col + 1, row=row + 1)
+        if dropped:
+            message += " \u00b7 " + t("rev_clipped", n=dropped)
+        self._set_status(message, flash=True)
+        return True
 
     # ---- LOOK (#v2.8.0, eighth test pass) -------------------------------------
     def toggle_looking(self):
@@ -1434,12 +1540,13 @@ class ArtKitApp:
         self._draw_main()
 
     def _refresh_look_ui(self):
+        """LOOK is the third of the view row (#v2.9.0): pressed while it is on,
+        and WITH / WITHOUT GRID let go meanwhile, since neither is showing."""
         btn = getattr(self, "_look_button", None)
         if btn is None:
             return
-        tick = dialogs.TICKED if self.looking else dialogs.UNTICKED
-        colour = theme.ACCENT if self.looking else theme.ON_DIM
-        btn.configure(text=f"{tick} {t('look')}", fg=colour, activeforeground=colour)
+        theme.set_pressed(btn, self.looking)
+        self._refresh_grid_ui()
 
     def _look_refuses(self):
         """Under LOOK an edit is refused, and the status corner says why."""
@@ -1465,6 +1572,7 @@ class ArtKitApp:
         stays with the drawing it was placed on and comes back with it; a
         drawing never given one opens with symmetry OFF."""
         self._sym_frames[id(previous)] = (self.symmetry_mode, self.symmetry_bar, self._placing_bar)
+        self._rev_had_selection = False    # the selection was the other drawing's
         mode, bar, placing = self._sym_frames.get(id(drawing), (symmetry.OFF, None, False))
         self.symmetry_mode, self.symmetry_bar, self._placing_bar = mode, bar, placing
         self._dragging_bar = self._resizing_bar = None
@@ -1488,7 +1596,7 @@ class ArtKitApp:
             inside = 0 <= bar.row <= d.height and last >= 0 and first < d.width
         if not inside:
             self.symmetry_bar = None
-            self._placing_bar = self.symmetry_mode in (symmetry.MIRROR, symmetry.STICK)
+            self._placing_bar = self.symmetry_mode == symmetry.MIRROR
             self._refresh_symmetry_ui()
 
     def _on_bar(self, col, row):
@@ -1575,6 +1683,9 @@ class ArtKitApp:
             # Pressing ON the line picks it up: drag to move, release to drop.
             bar = self.symmetry_bar
             self._dragging_bar = (bar.col - col, bar.row - row)
+            return
+        if self.tool == "swap":
+            self.swap_colour_at(col, row)
             return
         if self.tool == "select":
             if self.selection is not None and self._in_selection(col, row):
@@ -1833,6 +1944,51 @@ class ArtKitApp:
         self._after_change()
         return True
 
+    # ---- SWAP (#v2.9.0, sixth test pass) ------------------------------------------
+    def swap_colour_at(self, col, row):
+        """Every pixel the colour of (col, row) becomes the ink, as one undo
+        step - in the whole drawing, or only inside a selection made first
+        ("use select & change to change all cells with the same color at
+        once"). A colour matches however it is stored, letter or raw."""
+        if self.history is None or self._look_refuses():
+            return 0
+        d = self.history.current
+        old = d.colour_of(d.get(col, row))
+        if old is None:
+            self._set_status(t("swap_empty"), flash=True)
+            return 0
+        new = self.ink_rgba()
+        if tuple(old) == tuple(new):
+            self._set_status(t("swap_same"), flash=True)
+            return 0
+        self.history.begin_stroke()
+        n = d.swap_colour(old, self.ink, self.selection)
+        if self.history.end_stroke():
+            self._after_change()
+        self._set_status(t("swap_done", n=n, old=_hex(old), new=_hex(new)), flash=True)
+        return n
+
+    def _swap_preview(self, col, row):
+        """The cells SWAP would change from here, on screen - or None when
+        there are too many to outline, or nothing to swap."""
+        d = self.history.current
+        old = d.colour_of(d.get(col, row)) if d._inside(col, row) else None
+        if old is None or self.zoom_level < SWAP_PREVIEW_MIN_ZOOM:
+            return None
+        view = self._visible_cells()
+        if view is None:
+            return None
+        if self.selection is not None:
+            s0, t0, s1, t1 = self.selection
+            view = (max(view[0], s0), max(view[1], t0), min(view[2], s1), min(view[3], t1))
+            if view[2] < view[0] or view[3] < view[1]:
+                return None
+        key = (old, view, self._content_version, id(d))
+        if getattr(self, "_swap_key", None) != key:
+            self._swap_key, self._swap_cells = key, d.cells_coloured(old, view)
+        cells = self._swap_cells
+        return cells if 0 < len(cells) <= SWAP_PREVIEW_MAX_CELLS else None
+
     def on_canvas_pick(self, col, row):
         """Eyedropper: the cell under the cursor becomes the ink.
 
@@ -1848,7 +2004,7 @@ class ArtKitApp:
 
     def _target_cells(self, col, row):
         """The cells one pointer cell turns into under the current symmetry
-        mode: itself and its mirror twin (MIRROR and STICK), or just itself."""
+        mode: itself and its mirror twin under MIRROR, or just itself."""
         return symmetry.expand(self._active_bar(), [(col, row)])
 
     def _eraser_cells(self, col, row):
@@ -1966,8 +2122,14 @@ class ArtKitApp:
         scrollbar.pack(side="top", fill="both", expand=True)
         self._library_scrollbar = scrollbar
 
+        # Placed, not packed (#v2.9.0, seventh test pass): folding slides it
+        # out of sight rather than taking it off the screen. A packed body
+        # was unmapped on every fold, and every unfold mapped its hundreds of
+        # row widgets again - late, so the list showed first the canvas's old
+        # picture, then nothing, before the rows came. Slid aside it stays
+        # mapped, and opening the library only uncovers it.
         body = theme.frame(outer)
-        body.pack(side="left", fill="both", expand=True)
+        body.place(x=0, y=0, relheight=1.0, width=LIBRARY_W - LIBRARY_RAIL)
         self._library_body = body
 
         import_btn = theme.button(body, t("import_png"), self._import_dialog)
@@ -2037,12 +2199,12 @@ class ArtKitApp:
             return
         with theme.held_paint(self.root):
             if self._library_collapsed:
-                self._library_body.pack_forget()
+                self._library_body.place_configure(x=-LIBRARY_W)   # out of sight, still mapped
                 self._library_scrollbar.pack_forget()
                 self._library_outer.configure(width=LIBRARY_RAIL)
             else:
                 self._library_scrollbar.pack(side="top", fill="both", expand=True)
-                self._library_body.pack(side="left", fill="both", expand=True)
+                self._library_body.place_configure(x=0)
                 self._library_outer.configure(width=LIBRARY_W)
             if not hasattr(self, "_cam_strip"):
                 return                        # still building the window: nothing to settle
@@ -2355,6 +2517,11 @@ class ArtKitApp:
         bar.pack(side="bottom", fill="x", padx=PAD, pady=(0, PAD))
         self._counter_label = theme.label(bar, "", dim=True, anchor="w", font=theme.FONT_MONO)
         self._counter_label.pack(side="left")
+        # The rulers' switch, in the far right corner, with the cell and colour
+        # under the cursor just left of it (#v2.9.0: "sağ en altta olsun, x ve
+        # y ve renk kısmının çıktığı yerin sağında kalsın").
+        self._rulers_button = theme.button(bar, t("rulers"), self.toggle_rulers, padx=6, pady=1)
+        self._rulers_button.pack(side="right", padx=(8, 0))
         self._cursor_label = theme.label(bar, "", dim=True, anchor="e", font=theme.FONT_MONO)
         self._cursor_label.pack(side="right")
         self._colour_strip = ColourStrip(bar, on_pick=lambda h: self.set_ink(hex_to_rgba(h)))
@@ -2364,15 +2531,41 @@ class ArtKitApp:
 
         # Scrollbars, because 16 cells x zoom 48 is wider than the pane — the
         # edge pixels of a sprite must stay reachable at every zoom.
+        #
+        # On a grid since #v2.9.0, for the rulers: x1 x2 ... along the top and
+        # y1 y2 ... down the left, the way a spreadsheet heads its columns and
+        # rows ("microsoft exceldeki gibi").
         wrap = theme.frame(frame)
         wrap.pack(side="left", fill="both", expand=True, padx=PAD, pady=PAD)
+        wrap.grid_rowconfigure(1, weight=1)
+        wrap.grid_columnconfigure(1, weight=1)
         vbar = theme.scrollbar(wrap, "vertical")
-        vbar.pack(side="right", fill="y")
+        vbar.grid(row=1, column=2, sticky="ns")
         hbar = theme.scrollbar(wrap, "horizontal")
-        hbar.pack(side="bottom", fill="x")
+        hbar.grid(row=2, column=1, sticky="ew")
         self.canvas = tk.Canvas(wrap, highlightthickness=0, bg=theme.CANVAS_BG,
                                 yscrollcommand=vbar.set, xscrollcommand=hbar.set)
-        self.canvas.pack(side="left", fill="both", expand=True)
+        self.canvas.grid(row=1, column=1, sticky="nsew")
+        ruler = dict(highlightthickness=0, bg=theme.PANEL, bd=0)
+        self._ruler_corner = tk.Canvas(wrap, width=RULER_W, height=RULER_H, **ruler)
+        self._ruler_top = tk.Canvas(wrap, height=RULER_H, **ruler)
+        self._ruler_left = tk.Canvas(wrap, width=RULER_W, **ruler)
+        self._ruler_places = {self._ruler_corner: dict(row=0, column=0, sticky="nsew"),
+                              self._ruler_top: dict(row=0, column=1, sticky="ew"),
+                              self._ruler_left: dict(row=1, column=0, sticky="ns")}
+        # A heading pressed selects its whole column or row, dragged along
+        # the heading several; the corner selects everything - a
+        # spreadsheet's gestures (#v2.9.0, fifth test pass).
+        self._ruler_anchor = None
+        for ruler, across, cursor in ((self._ruler_top, True, "sb_down_arrow"),
+                                      (self._ruler_left, False, "sb_right_arrow")):
+            ruler.configure(cursor=cursor)
+            ruler.bind("<Button-1>", lambda e, a=across: self._on_ruler_press(e, a))
+            ruler.bind("<B1-Motion>", lambda e, a=across: self._on_ruler_drag(e, a))
+            ruler.bind("<ButtonRelease-1>", lambda e: setattr(self, "_ruler_anchor", None))
+        self._ruler_corner.configure(cursor="hand2")
+        self._ruler_corner.bind("<Button-1>", lambda e: self.select_whole())
+        self._place_rulers()
         # Through wrappers: the main view only renders the cells inside the
         # viewport now, so every scroll has to redraw that tile (#v2.8.0).
         vbar.configure(command=self._yview)
@@ -2431,6 +2624,10 @@ class ArtKitApp:
         # off anything longer - "exported House3.png" read "rted House3.png".
         self._status = theme.label(row, "", dim=True, anchor="e")
         self._status.pack(side="right", padx=(8, 0))
+        # A message may carry something to do on a click - the snapshot's
+        # file, shown in Explorer (#v2.9.0, seventh test pass).
+        self._status_action = None
+        self._status.bind("<Button-1>", lambda e: self._on_status_click())
 
         # The buttons ride on a canvas that scrolls sideways, because eleven
         # of them do not fit a narrow window and chrome that simply vanishes
@@ -2590,14 +2787,25 @@ class ArtKitApp:
         self._lang_button = theme.button(foot, t("language"), self._post_language_menu, padx=6)
         self._lang_button.pack(side="right", padx=(0, 4))
 
+        # Three equal thirds since #v2.9.0 ("LOOK ... with grid ve without grid
+        # kısmının sağına eklensin, aynı fontta olsun, onlar gibi çalışsın, o
+        # kısım üçe bölünsün"): three ways of showing the canvas, one pressed.
+        # `width=1` keeps a word from widening its third before `_pin_chrome`
+        # gives all three the same box and one point size; `padx=1` because
+        # WITHOUT GRID needs the room, or all three drop to 7 pt.
         lines_row = theme.frame(bottom)
         lines_row.pack(side="bottom", fill="x", pady=(0, 6))
         self._grid_buttons = {
-            True: theme.button(lines_row, t("with_grid"), lambda: self.set_show_grid(True), padx=4),
-            False: theme.button(lines_row, t("without_grid"), lambda: self.set_show_grid(False), padx=4),
+            True: theme.button(lines_row, t("with_grid"), lambda: self.set_show_grid(True),
+                               padx=1, width=1),
+            False: theme.button(lines_row, t("without_grid"), lambda: self.set_show_grid(False),
+                                padx=1, width=1),
         }
-        self._grid_buttons[True].pack(side="left", expand=True, fill="x")
-        self._grid_buttons[False].pack(side="left", expand=True, fill="x", padx=(2, 0))
+        self._look_button = theme.button(lines_row, t("look"), self.toggle_looking, padx=1, width=1)
+        self._view_buttons = (self._grid_buttons[True], self._grid_buttons[False], self._look_button)
+        for i, btn in enumerate(self._view_buttons):
+            lines_row.grid_columnconfigure(i, weight=1, uniform="view")
+            btn.grid(row=0, column=i, sticky="ew", padx=((0, 2), (1, 1), (2, 0))[i])
 
         previews = theme.frame(bottom)
         previews.pack(side="bottom", fill="x", pady=(0, 6))
@@ -2620,13 +2828,6 @@ class ArtKitApp:
         head.pack(fill="x")
         self._squint_label = theme.label(head, t("squint"), dim=True)
         self._squint_label.pack(side="left")
-        # LOOK, beside the other picture that is for looking (#v2.8.0, eighth
-        # test pass: "squint ... sağına check Look ekleyelim, orada çizim
-        # kapalı olsun, sadece bakma için"): see `set_looking`.
-        self._look_button = theme.button(head, "", self.toggle_looking, padx=3, pady=0,
-                                         font=theme.FONT_SMALL, bg=theme.BG,
-                                         activebackground=theme.PANEL_HI, anchor="e")
-        self._look_button.pack(side="right", padx=(8, 0))
         self.preview_squint = tk.Canvas(col2, highlightthickness=0, bg=theme.BG)
         self.preview_squint.pack()
         self._refresh_look_ui()
@@ -2645,14 +2846,21 @@ class ArtKitApp:
 
         tool_row = theme.frame(frame)
         tool_row.pack(fill="x", pady=2)
+        # Five equal boxes since SWAP joined (#v2.9.0): shared out by word
+        # length, FILL was left 37 px and shrank to 6 pt in three languages.
+        tool = dict(padx=3, width=1)
         self._tool_buttons = {
-            "draw": theme.button(tool_row, t("draw"), lambda: self.set_tool("draw")),
-            "erase": theme.button(tool_row, t("erase"), lambda: self.set_tool("erase")),
-            "fill": theme.button(tool_row, t("fill"), lambda: self.set_tool("fill")),
-            "select": theme.button(tool_row, t("select"), lambda: self.set_tool("select")),
+            "draw": theme.button(tool_row, t("draw"), lambda: self.set_tool("draw"), **tool),
+            "erase": theme.button(tool_row, t("erase"), lambda: self.set_tool("erase"), **tool),
+            "fill": theme.button(tool_row, t("fill"), lambda: self.set_tool("fill"), **tool),
+            "select": theme.button(tool_row, t("select"), lambda: self.set_tool("select"), **tool),
+            # #v2.9.0: every pixel of one colour to the ink at once ("select a
+            # color of pixels on the grid and change their color all at once").
+            "swap": theme.button(tool_row, t("swap"), lambda: self.set_tool("swap"), **tool),
         }
         for i, btn in enumerate(self._tool_buttons.values()):
-            btn.pack(side="left", expand=True, fill="x", padx=(0 if i == 0 else 2, 0))
+            tool_row.grid_columnconfigure(i, weight=1, uniform="tools")
+            btn.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else 2, 0))
 
         undo_row = theme.frame(frame)
         undo_row.pack(fill="x", pady=2)
@@ -2883,7 +3091,7 @@ class ArtKitApp:
                             insertbackground=theme.readable_on(hexcol))
         if hasattr(self, "_grid_buttons"):
             for on, btn in self._grid_buttons.items():
-                theme.set_pressed(btn, on == self.show_grid)
+                theme.set_pressed(btn, on == self.show_grid and not self.looking)
 
     def _select_all_in_entry(self, event):
         event.widget.focus_set()
@@ -2892,26 +3100,29 @@ class ArtKitApp:
         return "break"
 
     def _build_symmetry_block(self, frame):
-        """Under the colour panel (#v2.5.0): a mode row, a shape row, a hint.
+        """Under the colour panel (#v2.5.0): a mode row, and under it the panel
+        of the mode that is on (#v2.9.0) - nothing at all under OFF.
 
         OFF     — plain painting.
-        MIRROR  — the placed bar; painting along it is mirrored across it.
-                  Press on the bar to drag it, or PLACE BAR to click it
-                  somewhere new.
-        STICK   — every click paints `length` cells in the bar's direction.
+        MIRROR  — the placed line; painting along it is mirrored across it.
+                  Its panel: the line's direction and length, PLACE BAR, a hint.
+        REVERSE — the selection, turned over and copied beside itself. Its
+                  panel: the axis, eight arrows, the distance, COPY REVERSED.
         """
         self._sym_title = theme.label(frame, t("symmetry"), dim=True)
         self._sym_title.pack(pady=(4, 0), anchor="w")
         modes = theme.frame(frame)
         modes.pack(fill="x", pady=2)
+        self._sym_modes_row = modes
         self._sym_mode_buttons = {}
         for i, (mode, key) in enumerate(((symmetry.OFF, "off"), (symmetry.MIRROR, "mirror"),
-                                          (symmetry.STICK, "stick"))):
-            btn = theme.button(modes, t(key), lambda m=mode: self.set_symmetry_mode(m), padx=4)
+                                          (symmetry.REVERSE, "reverse"))):
+            btn = theme.button(modes, t(key), lambda m=mode: self._on_mode_button(m), padx=4)
             btn.pack(side="left", expand=True, fill="x", padx=(0 if i == 0 else 2, 0))
             self._sym_mode_buttons[mode] = btn
 
-        shape = theme.frame(frame)
+        mirror = theme.frame(frame)
+        shape = theme.frame(mirror)
         shape.pack(fill="x", pady=2)
         self._sym_orient_button = theme.button(
             shape, "", self._toggle_symmetry_orientation, padx=5)
@@ -2930,12 +3141,151 @@ class ArtKitApp:
         self._sym_length_spin.bind("<FocusOut>", self._on_symmetry_length)
         self._sym_place_button = theme.button(shape, t("place_bar"), self.arm_symmetry_placement, padx=5)
         self._sym_place_button.pack(side="left", padx=(2, 0))
-
-        self._sym_hint = theme.label(frame, "", dim=True, anchor="w", wraplength=INNER_W,
+        self._sym_hint = theme.label(mirror, "", dim=True, anchor="w", wraplength=INNER_W,
                                      justify="left")
         self._sym_hint.pack(fill="x")
+
+        reverse = theme.frame(frame)
+        self._build_reverse_panel(reverse)
+        self._sym_panels = {symmetry.MIRROR: mirror, symmetry.REVERSE: reverse}
+        self._sym_panel_shown = None
+        self._rev_ui_key = None
         # the old single toggle, kept as a name for anything that still asks
         self._sym_button = self._sym_mode_buttons[symmetry.MIRROR]
+
+    def _on_mode_button(self, mode):
+        """A mode button. REVERSE pressed while it is on lets go of it
+        (#v2.9.0, second test pass), so it can be pressed again for the next
+        selection; the others are plain choices."""
+        if mode == symmetry.REVERSE and self.symmetry_mode == symmetry.REVERSE:
+            mode = symmetry.OFF
+        self.set_symmetry_mode(mode)
+
+    # The arrows as they sit around the selection; the middle is the block.
+    REVERSE_PAD = (("up_left", "up", "up_right"),
+                   ("left", None, "right"),
+                   ("down_left", "down", "down_right"))
+    # Stand-ins for a Python without Pillow, where the icons cannot be drawn.
+    REVERSE_GLYPHS = {"up_left": "\u2196", "up": "\u2191", "up_right": "\u2197", "left": "\u2190",
+                      "right": "\u2192", "down_left": "\u2199", "down": "\u2193", "down_right": "\u2198"}
+    REVERSE_CELL = (26, 20)   # px: each arrow's box
+
+    def _build_reverse_panel(self, panel):
+        """REVERSE's panel (#v2.9.0): the axis, the arrows with the distance to
+        their right, COPY REVERSED, and a line saying what will happen."""
+        axis_row = theme.frame(panel)
+        axis_row.pack(fill="x", pady=2)
+        self._rev_axis_label = theme.label(axis_row, t("rev_axis"), dim=True)
+        self._rev_axis_label.pack(side="left", padx=(0, 6))
+        self._rev_axis_buttons = {}
+        for i, (axis, text) in enumerate(((symmetry.AXIS_X, "X"), (symmetry.AXIS_Y, "Y"),
+                                          (symmetry.AXIS_XY, "X+Y"))):
+            btn = theme.button(axis_row, text, lambda a=axis: self.set_reverse_axis(a), padx=4)
+            btn.pack(side="left", expand=True, fill="x", padx=(0 if i == 0 else 2, 0))
+            self._rev_axis_buttons[axis] = btn
+
+        body = theme.frame(panel)
+        body.pack(fill="x", pady=2)
+        # As tall as the column beside it (#v2.9.0, fourth test pass: "9 yönün
+        # alt çizgisi copy reversed ile aynı olsun"): the rows share out the
+        # height the distance, EQUAL / X · Y and COPY REVERSED take, so the
+        # bottom arrows end where COPY REVERSED does.
+        pad = theme.frame(body)
+        pad.pack(side="left", fill="y")
+        for i in range(3):
+            pad.grid_rowconfigure(i, weight=1, uniform="arrows")
+        w, h = self.REVERSE_CELL
+        size = h - 6
+        self._rev_icons = {}
+        self._rev_arrow_buttons = {}
+        for r, line in enumerate(self.REVERSE_PAD):
+            for c, direction in enumerate(line):
+                # The middle square is the selection itself: pressing it takes
+                # the arrow away, and only the selection is left (#v2.9.0,
+                # second test pass: "yönü kapamak için ... ortadaki kareye basma").
+                kind = "square" if direction is None else "arrow_" + direction
+                for pressed in (False, True):
+                    self._rev_icons[(direction, pressed)] = theme.icon(
+                        kind, size, theme.ON_ACCENT if pressed else theme.ON_SURFACE, master=self.root)
+                icon = self._rev_icons[(direction, False)]
+                command = lambda d=direction: self.set_reverse_direction(
+                    None if d == self._rev_direction else d)
+                if icon is not None:
+                    cell = theme.button(pad, "", command, image=icon, width=w, height=h,
+                                        padx=0, pady=0)
+                else:
+                    cell = theme.button(pad, self.REVERSE_GLYPHS.get(direction, "\u25a1"), command,
+                                        padx=4, pady=0)
+                self._rev_arrow_buttons[direction] = cell
+                cell.grid(row=r, column=c, padx=(0 if c == 0 else 2, 0), pady=(0 if r == 0 else 2, 0),
+                          sticky="nsew")
+
+        # The distance, on the right ("en sağda distance belirleme olacak"):
+        # EQUAL is one number for both steps - 15 toward the lower left is 15
+        # columns AND 15 rows away - and X · Y gives them apart. Since the
+        # second test pass the numbers sit on the word's own line and COPY
+        # REVERSED fills the room under EQUAL / X · Y ("distance karşısına x y
+        # uzaklıkları gelsin, onu sıkıştıralım").
+        dist = theme.frame(body)
+        dist.pack(side="left", fill="both", expand=True, padx=(8, 0))
+        head = theme.frame(dist)
+        head.pack(fill="x")
+        self._rev_distance_label = theme.label(head, t("rev_distance"), dim=True)
+        self._rev_distance_label.pack(side="left")
+        gaps = theme.frame(head)
+        gaps.pack(side="right")
+        self._rev_same_row = theme.frame(gaps)
+        self._rev_gap_spin = self._spinbox(self._rev_same_row, 0, symmetry.MAX_GAP, self._on_reverse_gap)
+        self._rev_gap_spin.pack(side="left", ipady=1)
+        self._rev_xy_row = theme.frame(gaps)
+        theme.label(self._rev_xy_row, "x", dim=True).pack(side="left", padx=(0, 2))
+        self._rev_gap_x_spin = self._spinbox(self._rev_xy_row, 0, symmetry.MAX_GAP, self._on_reverse_gap)
+        self._rev_gap_x_spin.pack(side="left", ipady=1)
+        theme.label(self._rev_xy_row, "y", dim=True).pack(side="left", padx=(4, 2))
+        self._rev_gap_y_spin = self._spinbox(self._rev_xy_row, 0, symmetry.MAX_GAP, self._on_reverse_gap)
+        self._rev_gap_y_spin.pack(side="left", ipady=1)
+        for spin in (self._rev_gap_spin, self._rev_gap_x_spin, self._rev_gap_y_spin):
+            spin.configure(disabledbackground=theme.BG, disabledforeground=theme.ON_DIM)
+        spacing = theme.frame(dist)
+        spacing.pack(fill="x", pady=(2, 2))
+        self._rev_spacing_buttons = {}
+        for i, (key, label) in enumerate(((symmetry.SPACING_SAME, "rev_same"),
+                                          (symmetry.SPACING_XY, "rev_xy"))):
+            btn = theme.button(spacing, t(label), lambda k=key: self.set_reverse_spacing(k), padx=4)
+            btn.pack(side="left", expand=True, fill="x", padx=(0 if i == 0 else 2, 0))
+            self._rev_spacing_buttons[key] = btn
+        self._rev_apply_button = theme.button(dist, t("rev_apply"), self.apply_reverse, padx=4)
+        self._rev_apply_button.pack(fill="x")
+
+        self._rev_hint = theme.label(panel, "", dim=True, anchor="w", wraplength=INNER_W,
+                                     justify="left")
+        self._rev_hint.pack(fill="x")
+
+    def _on_reverse_gap(self):
+        def read(spin, fallback):
+            try:
+                return int(spin.var.get())
+            except ValueError:
+                return fallback
+        self.set_reverse_gap(gap=read(self._rev_gap_spin, self._rev_gap),
+                             gap_x=read(self._rev_gap_x_spin, self._rev_gap_x),
+                             gap_y=read(self._rev_gap_y_spin, self._rev_gap_y))
+
+    def _show_symmetry_panel(self, mode):
+        """The panel under the mode row is the mode's own (#v2.9.0): MIRROR's
+        line, REVERSE's arrows, and none for OFF ("offa basınca alttaki
+        mirrorun paneli kalksın"). "all" stacks both, for measuring."""
+        if mode == self._sym_panel_shown:
+            return
+        for panel in self._sym_panels.values():
+            panel.pack_forget()
+        after = self._sym_modes_row
+        for m in ((symmetry.MIRROR, symmetry.REVERSE) if mode == "all" else (mode,)):
+            panel = self._sym_panels.get(m)
+            if panel is not None:
+                panel.pack(fill="x", after=after)
+                after = panel
+        self._sym_panel_shown = mode
 
     def _toggle_symmetry_orientation(self):
         other = (symmetry.HORIZONTAL if self._sym_orientation == symmetry.VERTICAL
@@ -2955,24 +3305,82 @@ class ArtKitApp:
             return
         for mode, btn in self._sym_mode_buttons.items():
             theme.set_pressed(btn, mode == self.symmetry_mode)
+        self._rev_ui_key = None      # REVERSE's button was just reset: redo its glow
+        self._show_symmetry_panel(self.symmetry_mode)
         vertical = self._sym_orientation == symmetry.VERTICAL
         self._sym_orient_button.configure(text="\u2502 90\u00b0" if vertical else "\u2500 180\u00b0")
         if self._sym_length_var.get() != str(self._sym_length):
             self._sym_length_var.set(str(self._sym_length))
-        lined = self.symmetry_mode in (symmetry.MIRROR, symmetry.STICK)
+        lined = self.symmetry_mode == symmetry.MIRROR
         self._sym_place_button.configure(state="normal" if lined else "disabled",
                                          fg=theme.ON_SURFACE if lined else theme.ON_DIM)
         theme.set_pressed(self._sym_place_button, lined and self._placing_bar)
-        if self.symmetry_mode == symmetry.OFF:
+        if not lined:
             self._sym_hint.configure(text="", fg=theme.ON_DIM)
-        elif self.symmetry_mode == symmetry.STICK:
-            axis = t("stick_axis_rows") if vertical else t("stick_axis_cols")
-            self._sym_hint.configure(text=t("stick_hint", n=self._sym_length, axis=axis),
-                                     fg=theme.ON_DIM)
         elif self._placing_bar:
             self._sym_hint.configure(text=t("mirror_place"), fg=theme.ACCENT)
         else:
             self._sym_hint.configure(text=t("mirror_hint"), fg=theme.ON_DIM)
+        self._refresh_reverse_ui()
+
+    def _refresh_reverse_ui(self):
+        """REVERSE's panel, and the REVERSE button itself: it glows while there
+        is a selection for it to turn over ("select kısmına basınca ve
+        seçtikten sonra parlayacak"), and is pressed while it is the mode."""
+        if not hasattr(self, "_rev_axis_buttons"):
+            return
+        selected = self.selection is not None
+        # Called on every step of a selection drag (`_draw_overlays`): only
+        # what can have changed since the last call is worth touching.
+        key = (selected, self.symmetry_mode, self._rev_axis, self._rev_direction, self._rev_spacing,
+               self._rev_gap, self._rev_gap_x, self._rev_gap_y, i18n.language())
+        if key == self._rev_ui_key:
+            return
+        self._rev_ui_key = key
+        btn = self._sym_mode_buttons[symmetry.REVERSE]
+        if self.symmetry_mode == symmetry.REVERSE:
+            theme.set_pressed(btn, True)
+        elif selected:
+            btn.configure(bg=theme.SELECTED_ROW, fg=theme.ACCENT, activebackground=theme.PANEL_HI,
+                          activeforeground=theme.ACCENT, highlightbackground=theme.SELECTED_ROW)
+        else:
+            theme.set_pressed(btn, False)
+        for axis, b in self._rev_axis_buttons.items():
+            theme.set_pressed(b, axis == self._rev_axis)
+        for direction, b in self._rev_arrow_buttons.items():
+            pressed = direction == self._rev_direction
+            theme.set_pressed(b, pressed)
+            icon = self._rev_icons.get((direction, pressed))
+            if icon is not None:
+                b.configure(image=icon)
+        for key, b in self._rev_spacing_buttons.items():
+            theme.set_pressed(b, key == self._rev_spacing)
+        same = self._rev_spacing == symmetry.SPACING_SAME
+        (self._rev_same_row if same else self._rev_xy_row).pack(side="left")
+        (self._rev_xy_row if same else self._rev_same_row).pack_forget()
+        try:
+            focus = self.root.focus_get()
+        except (KeyError, tk.TclError):    # focus on a menu Tk cannot name
+            focus = None
+        dc, dr = symmetry.DIRECTIONS.get(self._rev_direction, (0, 0))
+        for spin, value, live in ((self._rev_gap_spin, self._rev_gap, True),
+                                  (self._rev_gap_x_spin, self._rev_gap_x, dc != 0),
+                                  (self._rev_gap_y_spin, self._rev_gap_y, dr != 0)):
+            # A straight arrow moves along one axis only; the other number
+            # would do nothing, so it is greyed rather than silently ignored.
+            spin.configure(state="normal" if live else "disabled")
+            if spin is not focus and spin.var.get() != str(value):
+                spin.var.set(str(value))
+        ready = selected and self._rev_direction is not None
+        self._rev_apply_button.configure(state="normal" if ready else "disabled",
+                                         fg=theme.ON_SURFACE if ready else theme.ON_DIM)
+        if not selected:
+            self._rev_hint.configure(text=t("rev_select_first"), fg=theme.ACCENT)
+        elif self._rev_direction is None:
+            self._rev_hint.configure(text=t("rev_pick_arrow"), fg=theme.ACCENT)
+        else:
+            self._rev_hint.configure(text=t("rev_enter", what=t("rev_axis_" + self._rev_axis)),
+                                     fg=theme.ON_DIM)
 
     def _build_picker(self, frame):
         """The full colour panel, embedded \u2014 a hue strip over a shade square,
@@ -2986,6 +3394,84 @@ class ArtKitApp:
         # The names the rest of the app and the tests already know.
         self._hue_strip = self._picker.hue_strip
         self._sv_square = self._picker.sv_square
+        self._build_colour_numbers(frame)
+
+    # The numbers under the shade square (#v2.9.0, from an artist's feedback
+    # with a screenshot of Photoshop's picker: "in the color panel when I
+    # click, I can see the color changing, but I wish sth like this was in
+    # the art kit"): the colour now over the one it replaced, and the colour
+    # as H S B and R G B, each one typed into as well as read.
+    COLOUR_FIELDS = (("h", "H", "\u00b0", 360), ("s", "S", "%", 100), ("v", "B", "%", 100),
+                     ("r", "R", "", 255), ("g", "G", "", 255), ("b", "B", "", 255))
+
+    def _build_colour_numbers(self, frame):
+        block = theme.frame(frame)
+        block.pack(fill="x", pady=(6, 0))
+        pair = theme.frame(block)
+        pair.grid(row=0, column=0, rowspan=2, sticky="nsw", padx=(0, 8))
+        self._ink_swatches = {}
+        self._ink_swatch_labels = {}
+        for i, key in enumerate(("ink_now", "ink_was")):
+            caption = theme.label(pair, t(key), dim=True, anchor="e", width=5)
+            caption.grid(row=i, column=0, sticky="e", padx=(0, 3))
+            sw = tk.Label(pair, bg=theme.BG, width=4, height=1, bd=0, highlightthickness=1,
+                          highlightbackground=theme.SHADOW)
+            sw.grid(row=i, column=1, sticky="nsew")
+            self._ink_swatches[key] = sw
+            self._ink_swatch_labels[key] = caption
+        # The "was" colour is a way back, as the current swatch is in Photoshop.
+        was = self._ink_swatches["ink_was"]
+        was.configure(cursor="hand2")
+        was.bind("<Button-1>", lambda e: self.back_to_was())
+        self._colour_entries = {}
+        for i, (key, name, unit, top) in enumerate(self.COLOUR_FIELDS):
+            row, col = divmod(i, 3)
+            cell = theme.frame(block)
+            cell.grid(row=row, column=1 + col, sticky="w", padx=(0 if col == 0 else 4, 0),
+                      pady=(0 if row == 0 else 2, 0))
+            theme.label(cell, name, dim=True).pack(side="left", padx=(0, 2))
+            entry = theme.entry(cell, justify="right", width=3)
+            entry.pack(side="left", ipady=1)
+            if unit:
+                theme.label(cell, unit, dim=True).pack(side="left")
+            entry.bind("<Return>", lambda e, r=row: self._on_colour_numbers(r))
+            entry.bind("<KP_Enter>", lambda e, r=row: self._on_colour_numbers(r))
+            entry.bind("<FocusOut>", lambda e, r=row: self._on_colour_numbers(r))
+            entry.bind("<FocusIn>", self._select_all_in_entry)
+            self._colour_entries[key] = entry
+        self._refresh_ink_ui()
+
+    def back_to_was(self):
+        """WAS clicked: the colour the ink replaced becomes the ink again."""
+        self.set_ink(self._ink_was)
+
+    def _colour_numbers(self, rgba):
+        r, g, b = rgba[:3]
+        h, sat, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        return {"h": round(h * 360) % 360, "s": round(sat * 100), "v": round(v * 100),
+                "r": r, "g": g, "b": b}
+
+    def _on_colour_numbers(self, row):
+        """A number typed: row 0 is H S B, row 1 is R G B. Anything that is
+        not a number puts the field back as it was."""
+        keys = [k for k, *_ in self.COLOUR_FIELDS][row * 3:row * 3 + 3]
+        tops = {k: top for k, _n, _u, top in self.COLOUR_FIELDS}
+        now = self._colour_numbers(self.ink_rgba())
+        values = {}
+        for key in keys:
+            try:
+                values[key] = max(0, min(tops[key], int(self._colour_entries[key].get().strip())))
+            except ValueError:
+                values[key] = now[key]
+        if row == 0:
+            rr, gg, bb = colorsys.hsv_to_rgb((values["h"] % 360) / 360, values["s"] / 100, values["v"] / 100)
+            rgb = (round(rr * 255), round(gg * 255), round(bb * 255))
+        else:
+            rgb = (values["r"], values["g"], values["b"])
+        if rgb + (255,) != tuple(self.ink_rgba()):
+            self.set_ink(rgb + (255,))
+        else:
+            self._refresh_ink_ui()      # a bad entry is put back
 
     @property
     def _hue(self):
@@ -3020,9 +3506,12 @@ class ArtKitApp:
         self.root.bind("<Key-b>", self._typing_guard(lambda: self.set_tool("draw")))
         self.root.bind("<Key-f>", self._typing_guard(lambda: self.set_tool("fill")))
         self.root.bind("<Key-s>", self._typing_guard(lambda: self.set_tool("select")))
+        self.root.bind("<Key-c>", self._typing_guard(lambda: self.set_tool("swap")))
         self.root.bind("<Key-m>", self._typing_guard(self.cycle_symmetry_mode))
-        self.root.bind("<Return>", self._typing_guard(self.commit_floating))
-        self.root.bind("<KP_Enter>", self._typing_guard(self.commit_floating))
+        # COPY REVERSED's own key (#v2.9.0, second test pass), beside Enter.
+        self.root.bind("<Key-r>", self._typing_guard(self._on_reverse_key))
+        self.root.bind("<Return>", self._typing_guard(self._on_enter))
+        self.root.bind("<KP_Enter>", self._typing_guard(self._on_enter))
         self.root.bind("<Delete>", self._typing_guard(self.delete_selection))
         self.root.bind("<BackSpace>", self._typing_guard(self.delete_selection))
         self.root.bind("<Left>", self._typing_guard(lambda: self.nudge_floating(-1, 0)))
@@ -3041,6 +3530,18 @@ class ArtKitApp:
         if is_test_build(self.root):
             self.root.bind_all("<F12>", self.take_snapshot)
         self.root.bind("<Escape>", self._on_escape)
+
+    def _on_enter(self):
+        """Enter lands a floating block; with none, under REVERSE and with a
+        selection, it copies the selection reversed (#v2.9.0)."""
+        if self.floating is not None:
+            self.commit_floating()
+        elif self.symmetry_mode == symmetry.REVERSE and self.selection is not None:
+            self.apply_reverse()
+
+    def _on_reverse_key(self):
+        if self.symmetry_mode == symmetry.REVERSE and self.floating is None:
+            self.apply_reverse()
 
     def _typing_guard(self, fn):
         def handler(_event):
@@ -3242,18 +3743,22 @@ class ArtKitApp:
         self._hover_cell = None
         self._refresh_cursor_label()
         self._refresh_counter()
+        self._draw_ruler_marks()
 
     def _on_motion(self, event):
-        """Ghosts under the cursor (the bar being placed, the stick, the
+        """Ghosts under the cursor (the bar being placed, the
         eraser's footprint), the move cursor over the bar, and the cell /
         colour readout in the strip below."""
         self.canvas.delete("ghost")
         if self.history is None:
             return
         col, row = self._grid_at(event)
+        moved = (col, row) != self._hover_cell
         self._hover_cell = (col, row)
         self._refresh_cursor_label()
         self._refresh_counter()
+        if moved:
+            self._draw_ruler_marks()
         self._draw_ghost()
         if self.looking:
             self.canvas.configure(cursor="")    # nothing to grab: it is for looking
@@ -3294,6 +3799,13 @@ class ArtKitApp:
             self._draw_bar(ghost, tag="ghost", colour=theme.ON_DIM)
         elif self.tool == "erase" and tuple(self.eraser_size) != (1, 1):
             self._ghost_cells(self._eraser_cells(col, row), self.zoom_level)
+        elif self.tool == "swap":
+            cells = self._swap_preview(col, row)
+            z = self.zoom_level
+            for c, r in cells or ():
+                self.canvas.create_rectangle(float(c * z + 1), float(r * z + 1), float((c + 1) * z - 1),
+                                             float((r + 1) * z - 1), outline=theme.ACCENT, width=1,
+                                             tags="ghost")
 
     def _eraser_reaches(self, col, row):
         """Does the eraser, centred on (col, row), cover any of the drawing?
@@ -3347,8 +3859,8 @@ class ArtKitApp:
         elif self._hover_cell is not None:
             col, row = self._hover_cell
             if d._inside(col, row):
-                parts.append(t("row_count", row=row, n=d.row_count(row)))
-                parts.append(t("col_count", col=col, n=d.col_count(col)))
+                parts.append(t("row_count", row=row + 1, n=d.row_count(row)))
+                parts.append(t("col_count", col=col + 1, n=d.col_count(col)))
         label.configure(text=" \u00b7 ".join(parts))
 
     def _refresh_cursor_label(self):
@@ -3370,7 +3882,8 @@ class ArtKitApp:
             colour = _hex(d.palette.colors()[cell])
         else:
             colour = _hex(cell)
-        label.configure(text=f"x {col}  y {row}   {colour}")
+        # From 1, as the rulers count (#v2.9.0): the first column is x1.
+        label.configure(text=f"x {col + 1}  y {row + 1}   {colour}")
 
     def _refresh_colour_strip(self):
         strip = getattr(self, "_colour_strip", None)
@@ -3985,6 +4498,7 @@ class ArtKitApp:
             self._draw_bar(bar, tag="symmetry", colour=theme.ACCENT)
         self._draw_overlays()
         self._draw_ghost()
+        self._draw_rulers()
         self._refresh_camera_ui()
 
     def _tile(self, drawing, view, n=1):
@@ -4096,15 +4610,204 @@ class ArtKitApp:
             return
         self._draw_main()
 
+    # ---- the rulers (#v2.9.0) ------------------------------------------------------
+    #
+    # "x1, x2, x3 ... y1, y2, y3 koordinat kutuları eklensin sol tarafa ve üst
+    # tarafa, microsoft exceldeki gibi": a box per column over the canvas and
+    # per row down its left, numbered from 1 like a spreadsheet's - the same
+    # numbers the cursor readout shows. Every cell keeps its own box and
+    # label however far out the zoom goes; the type shrinks with the cells.
+    # The selection's columns and rows are shaded, and the cell under the
+    # pointer lit, the way a spreadsheet marks its headings.
+
+    def toggle_rulers(self):
+        self.set_show_rulers(not self.show_rulers)
+
+    def set_show_rulers(self, on):
+        on = bool(on)
+        if on == self.show_rulers:
+            return
+        self.show_rulers = on
+        self.settings.show_rulers = on
+        self._place_rulers()
+        self._draw_rulers()
+
+    def _place_rulers(self):
+        for widget, place in self._ruler_places.items():
+            if self.show_rulers:
+                widget.grid(**place)
+            else:
+                widget.grid_remove()
+        btn = getattr(self, "_rulers_button", None)
+        if btn is not None:
+            theme.set_pressed(btn, self.show_rulers)
+
+    def _ruler_text_px(self, text, px=None):
+        font = theme.FONT_SMALL if px is None else (theme.FONT_FAMILY, -px)
+        try:
+            return int(self.root.tk.call("font", "measure", font, text))
+        except tk.TclError:
+            return 6 * len(text)
+
+    def _ruler_font(self, z, label, thick, across):
+        """The one pixel size every label of a ruler is drawn at: as big as
+        the ruler allows, and smaller as the cells get smaller, so each cell
+        keeps a label of its own however far out the zoom goes - the way a
+        spreadsheet at 10 % still heads every column. None when a cell is
+        too small for even a smudge of type; its box is still drawn."""
+        if across:
+            # the widest label must fit its cell, with a pixel either side
+            ref = RULER_FONT_PX
+            px = int(ref * (float(z) - 2) / max(1, self._ruler_text_px(label, ref)))
+        else:
+            px = int((float(z) - 1) / 1.25)     # a line of type is ~1.25 px per px of size
+        px = min(px, RULER_FONT_PX, thick - 4)
+        return None if px < RULER_MIN_FONT_PX else (theme.FONT_FAMILY, -px)
+
+    def _draw_rulers(self):
+        if not self.show_rulers or self.history is None:
+            return
+        d = self.history.current
+        z = self.zoom_level
+        vx, vy = self._view_origin()
+        cw, ch = self._viewport()
+        # The left ruler is as wide as its longest label wants, never less.
+        width = max(RULER_W, self._ruler_text_px(f"y{d.height}") + 8)
+        if int(self._ruler_left.cget("width")) != width:
+            self._ruler_left.configure(width=width)
+            self._ruler_corner.configure(width=width)
+        self._draw_ruler(self._ruler_top, "x", d.width, z, vx, cw, RULER_H, True)
+        self._draw_ruler(self._ruler_left, "y", d.height, z, vy, ch, width, False)
+        self._draw_ruler_marks()
+
+    def _draw_ruler(self, canvas, prefix, count, z, origin, span, thick, across):
+        """One ruler: `across` is the top one (columns), else the left (rows).
+        `origin` is the view's leading edge in canvas pixels, `span` the pane.
+
+        Every cell has its own box and its own label (#v2.9.0, fourth test
+        pass: "x ve y koordinatları ne olursa olsun tek tek sıra sıra
+        gözüksün ... excelde %100'ü %1'e getirince nasıl oluyorsa"). The first
+        version labelled only every 2nd, 5th, 10th ... cell once they got
+        small. Below one screen pixel a cell there is no box to draw: the
+        lines would be every pixel, so the ruler is left plain."""
+        canvas.delete("all")
+        first = max(0, int(origin // z))
+        last = min(count - 1, int((origin + span) // z))
+        if last < first:
+            return
+        line = dict(fill=theme.SHADOW, tags="tick")
+        font = self._ruler_font(z, f"{prefix}{count}", thick, across)
+        text = dict(fill=theme.ON_DIM, font=font, tags="label")
+        boxes = z >= 2
+        for n in range(first + 1, last + 2):
+            a = float((n - 1) * z - origin)
+            mid = a + float(z) / 2
+            if boxes:
+                canvas.create_line(*((a, 0, a, thick) if across else (0, a, thick, a)), **line)
+            if font is not None:
+                canvas.create_text(*((mid, thick / 2) if across else (thick / 2, mid)),
+                                   text=f"{prefix}{n}", **text)
+        # the far edge of the drawing
+        end = float(count * z - origin)
+        if 0 <= end <= span:
+            canvas.create_line(*((end, 0, end, thick) if across else (0, end, thick, end)), **line)
+        canvas.create_line(*((0, thick - 1, span, thick - 1) if across else (thick - 1, 0, thick - 1, span)),
+                           fill=theme.SHADOW, tags="tick")
+
+    def _ruler_cell(self, event, across, clamp=False):
+        """The column (top ruler) or row (left ruler) under the pointer, or
+        None past the drawing's ends - unless `clamp`, for a drag."""
+        if self.history is None:
+            return None
+        d = self.history.current
+        z = self.zoom_level
+        vx, vy = self._view_origin()
+        pos, origin, count = (event.x, vx, d.width) if across else (event.y, vy, d.height)
+        n = int((pos + origin) // z)
+        if clamp:
+            return max(0, min(count - 1, n))
+        return n if 0 <= n < count else None
+
+    def _on_ruler_press(self, event, across):
+        """x1 pressed: all of column x1 selected; y1: all of row y1 ("x1'e
+        basınca yukarıda tüm x1 satırı select olsun, aynı şekilde y1")."""
+        n = self._ruler_cell(event, across)
+        if n is None or not self._ready_to_select():
+            return
+        self._ruler_anchor = (across, n)
+        self.select_lines(across, n, n)
+
+    def _on_ruler_drag(self, event, across):
+        if self._ruler_anchor is None or self._ruler_anchor[0] != across:
+            return
+        self.select_lines(across, self._ruler_anchor[1], self._ruler_cell(event, across, clamp=True))
+
+    def _ready_to_select(self):
+        """SELECT on, nothing in the air, and not VIEW ONLY. False if it cannot be."""
+        if self.history is None or self._look_refuses():
+            return False
+        self.commit_floating()
+        if self.tool != "select":
+            self.set_tool("select")
+        return True
+
+    def select_lines(self, across, first, last):
+        """Whole columns `first`..`last` (across), or whole rows."""
+        d = self.history.current
+        if across:
+            self.select_region(first, 0, last, d.height - 1)
+        else:
+            self.select_region(0, first, d.width - 1, last)
+
+    def select_whole(self):
+        """The rulers' corner: the whole drawing."""
+        if self._ready_to_select():
+            d = self.history.current
+            self.select_region(0, 0, d.width - 1, d.height - 1)
+
+    def _draw_ruler_marks(self):
+        """The selection's span shaded, the cell under the pointer lit."""
+        if not self.show_rulers or self.history is None:
+            return
+        top, left = self._ruler_top, self._ruler_left
+        top.delete("mark")
+        left.delete("mark")
+        z = self.zoom_level
+        vx, vy = self._view_origin()
+        width = int(left.cget("width"))
+        spans = []
+        if self.selection is not None:
+            c0, r0, c1, r1 = self.selection
+            spans.append((c0, c1, r0, r1, theme.SELECTED_ROW))
+        if self._hover_cell is not None and self.history.current._inside(*self._hover_cell):
+            c, r = self._hover_cell
+            spans.append((c, c, r, r, theme.PANEL_HI))
+        for c0, c1, r0, r1, colour in spans:
+            x0, x1 = float(c0 * z - vx), float((c1 + 1) * z - vx)
+            y0, y1 = float(r0 * z - vy), float((r1 + 1) * z - vy)
+            # at least a sliver, however far out the zoom is
+            top.create_rectangle(x0, 0, max(x1, x0 + 2), RULER_H, fill=colour, width=0, tags="mark")
+            left.create_rectangle(0, y0, width, max(y1, y0 + 2), fill=colour, width=0, tags="mark")
+        top.tag_lower("mark")
+        left.tag_lower("mark")
+
     def _draw_overlays(self):
         """The selection rectangle and the floating block (#v2.6.0) — redrawn
         on their own while they move, so the drawing underneath is not
         re-rendered for every pixel of a drag."""
         self.canvas.delete("selection")
         self.canvas.delete("floating")
+        self.canvas.delete("reverse")
+        if (self.symmetry_mode == symmetry.REVERSE and self._rev_had_selection
+                and self.selection is None):
+            self._let_go_of_reverse()
+        self._rev_had_selection = self.selection is not None
+        self._refresh_reverse_ui()      # the REVERSE button glows with a selection
+        self._draw_ruler_marks()
         if self.history is None:
             return
         z = self.zoom_level
+        self._draw_reverse_ghost()
         if self.floating is not None:
             f = self.floating
             palette = self.history.current.palette.colors()
@@ -4122,8 +4825,9 @@ class ArtKitApp:
                 else:
                     img = raster.photo(cells, z, master=self.root)
                 self._images["floating"] = img
-                self.canvas.create_image(float(tc * z), float(tr * z), image=img, anchor="nw",
-                                         tags="floating")
+                item = self.canvas.create_image(float(tc * z), float(tr * z), image=img, anchor="nw",
+                                                tags="floating")
+                self._under_grid_lines(item)
             self.canvas.create_rectangle(float(x0), float(y0), float(x0 + f["w"] * z),
                                          float(y0 + f["h"] * z), outline=theme.ACCENT, width=2,
                                          dash=(6, 3), tags="floating")
@@ -4132,6 +4836,57 @@ class ArtKitApp:
             self.canvas.create_rectangle(float(c0 * z + 1), float(r0 * z + 1),
                                          float((c1 + 1) * z - 1), float((r1 + 1) * z - 1),
                                          outline=theme.WORK, width=2, dash=(6, 3), tags="selection")
+
+    def _let_go_of_reverse(self):
+        """The selection REVERSE was working on is gone - lifted to be moved,
+        dismissed, cleared - so REVERSE lets go too (#v2.9.0, second test
+        pass: "select kısmını oynattım ... sağdaki reversed kısmı aktif kaldı,
+        bu da tekrar seçememe neden oldu"). It stayed pressed, and pressing a
+        pressed mode did nothing, so it could not be chosen again for the next
+        selection. Not an undo step: nothing the artist did was to the mode."""
+        self.symmetry_mode = symmetry.OFF
+        self.settings.set_symmetry(self._sym_orientation, self._sym_length, symmetry.OFF)
+        self._refresh_symmetry_ui()
+
+    def _under_grid_lines(self, item):
+        """A picture laid over the art - the REVERSE preview, a floating
+        block - goes under the cell lines, so it shows gridded like the art
+        it will become (#v2.9.0, second test pass: "önizlemede gridsiz")."""
+        if self.canvas.find_withtag("grid"):
+            self.canvas.tag_lower(item, "grid")
+
+    def _draw_reverse_ghost(self):
+        """Under REVERSE, where the copy will land and what it will look like,
+        before anything is written (#v2.9.0): the turned-over cells, and a
+        dashed outline in the informational blue - not the selection's green
+        or a floating block's accent, since nothing here can be dragged."""
+        target = self._reverse_target()
+        if (self.symmetry_mode != symmetry.REVERSE or self.looking or self.floating is not None
+                or target is None):
+            return
+        d = self.history.current
+        col, row, w, h = target
+        cells, _w, _h = d.region(*self.selection)
+        block = symmetry.turned(cells, self._rev_axis)
+        palette = d.palette.colors()
+        grid = [[(palette[c] if isinstance(c, str) else c)
+                 if c is not None and d._inside(col + dc, row + dr) else None
+                 for dc, c in enumerate(line)] for dr, line in enumerate(block)]
+        z = self.zoom_level
+        tile = self._clip_to_view(grid, col, row)
+        if tile is not None:
+            cells, tc, tr = tile
+            if z < 1:
+                img = raster.photo(raster.reduce(cells, round(1 / z)), 1, master=self.root)
+            else:
+                img = raster.photo(cells, z, master=self.root)
+            self._images["reverse"] = img
+            item = self.canvas.create_image(float(tc * z), float(tr * z), image=img, anchor="nw",
+                                            tags="reverse")
+            self._under_grid_lines(item)
+        self.canvas.create_rectangle(float(col * z + 1), float(row * z + 1),
+                                     float((col + w) * z - 1), float((row + h) * z - 1),
+                                     outline=theme.BREAK, width=2, dash=(4, 4), tags="reverse")
 
     def _clip_to_view(self, grid, col, row):
         """`grid`, a block of cells whose top-left sits at cell (col, row),
@@ -4329,6 +5084,24 @@ class ArtKitApp:
         entry.insert(0, hexcode)
         entry.configure(bg=hexcode, fg=theme.readable_on(hexcode),
                         insertbackground=theme.readable_on(hexcode))
+        swatches = getattr(self, "_ink_swatches", None)
+        if swatches is None:
+            return
+        swatches["ink_now"].configure(bg=hexcode)
+        was = self._ink_was
+        if isinstance(was, str) and self.history is not None:
+            was = self.history.current.palette.colors()[was]
+        swatches["ink_was"].configure(bg=_hex(was) if isinstance(was, tuple) else hexcode)
+        try:
+            focus = self.root.focus_get()
+        except (KeyError, tk.TclError):
+            focus = None
+        for key, value in self._colour_numbers(rgba).items():
+            field = self._colour_entries[key]
+            if field is not focus and field.get() != str(value):
+                field.delete(0, "end")
+                field.insert(0, str(value))
+        self._picker.mark(rgba[:3])
 
     def _refresh_size_label(self):
         label = getattr(self, "_size_label", None)
@@ -4369,6 +5142,7 @@ class ArtKitApp:
             (self._tool_buttons.get("erase") if hasattr(self, "_tool_buttons") else None, "erase"),
             (self._tool_buttons.get("fill") if hasattr(self, "_tool_buttons") else None, "fill"),
             (self._tool_buttons.get("select") if hasattr(self, "_tool_buttons") else None, "select"),
+            (self._tool_buttons.get("swap") if hasattr(self, "_tool_buttons") else None, "swap"),
             (getattr(self, "_undo_button", None), "undo"),
             (getattr(self, "_redo_button", None), "redo"),
             (getattr(self, "_update_button", None), "update"),
@@ -4378,10 +5152,15 @@ class ArtKitApp:
             (getattr(self, "_import_button", None), "import_png"),
             (self._sym_mode_buttons.get(symmetry.OFF) if hasattr(self, "_sym_mode_buttons") else None, "off"),
             (self._sym_mode_buttons.get(symmetry.MIRROR) if hasattr(self, "_sym_mode_buttons") else None, "mirror"),
-            (self._sym_mode_buttons.get(symmetry.STICK) if hasattr(self, "_sym_mode_buttons") else None, "stick"),
+            (self._sym_mode_buttons.get(symmetry.REVERSE) if hasattr(self, "_sym_mode_buttons") else None, "reverse"),
+            (getattr(self, "_rev_spacing_buttons", {}).get(symmetry.SPACING_SAME), "rev_same"),
+            (getattr(self, "_rev_spacing_buttons", {}).get(symmetry.SPACING_XY), "rev_xy"),
+            (getattr(self, "_rev_apply_button", None), "rev_apply"),
             (getattr(self, "_sym_place_button", None), "place_bar"),
             (self._grid_buttons.get(True) if hasattr(self, "_grid_buttons") else None, "with_grid"),
             (self._grid_buttons.get(False) if hasattr(self, "_grid_buttons") else None, "without_grid"),
+            (getattr(self, "_look_button", None), "look"),
+            (getattr(self, "_rulers_button", None), "rulers"),
             (getattr(self, "_cam_fit_button", None), "cam_fit"),
             (self._cam_mode_buttons.get(CAM_FREE) if hasattr(self, "_cam_mode_buttons") else None, "cam_free"),
             (self._cam_mode_buttons.get(CAM_LOCK) if hasattr(self, "_cam_mode_buttons") else None, "cam_lock"),
@@ -4402,12 +5181,29 @@ class ArtKitApp:
         `update_idletasks`, not with an event loop — and `_apply_language`
         puts the real text straight back."""
         pairs = self._chrome_pairs()
+        # Both symmetry panels are measured, whichever is showing (#v2.9.0):
+        # one packed later would be pinned to a box it was never laid out in.
+        if hasattr(self, "_sym_panels"):
+            self._show_symmetry_panel("all")
         for btn, key in pairs:
             tk.Label.configure(btn, text=i18n.STRINGS[i18n.EN].get(key, t(key)),
                                font=theme.FONT_BOLD)
         self.root.update_idletasks()
         for btn, _key in pairs:
             btn.pin_box()
+        tools = list(getattr(self, "_tool_buttons", {}).values())
+        if tools:
+            # the gaps between them are 2 px each
+            fifth = (INNER_W - 2 * (len(tools) - 1)) // len(tools)
+            for btn in tools:
+                btn.pin_box(width=fifth)
+        views = getattr(self, "_view_buttons", ())
+        if views:
+            # Thirds of the row, not what each word asked for, and one size.
+            third = (INNER_W - 4) // 3
+            for btn in views:
+                btn.pin_box(width=third)
+            theme.same_size(*views)
         self._apply_language()
 
     def _apply_language(self):
@@ -4433,6 +5229,10 @@ class ArtKitApp:
                 (getattr(self, "_ready_title", None), "ready"),
                 (getattr(self, "_colour_title", None), "colour"),
                 (getattr(self, "_sym_title", None), "symmetry"),
+                (getattr(self, "_ink_swatch_labels", {}).get("ink_now"), "ink_now"),
+                (getattr(self, "_ink_swatch_labels", {}).get("ink_was"), "ink_was"),
+                (getattr(self, "_rev_axis_label", None), "rev_axis"),
+                (getattr(self, "_rev_distance_label", None), "rev_distance"),
         ):
             if label is not None:
                 label.configure(text=t(key))
@@ -4451,6 +5251,10 @@ class ArtKitApp:
             self.toggle_help()
             self.toggle_help()
 
+    def _on_status_click(self):
+        if self._status_action is not None:
+            self._status_action()
+
     # ---- F12 (#v2.8.0, sixth test pass) ---------------------------------------
     def take_snapshot(self, _event=None):
         """F12: the window as it is, and the numbers behind it, into the data
@@ -4463,10 +5267,16 @@ class ArtKitApp:
         except OSError:
             self._set_status(t("snapshot_failed"), error=True)
             return "break"
+        # A click on the message shows the file in Explorer, selected (#v2.9.0,
+        # seventh test pass: "snapshot yazıyor, ona basınca direkt lokasyonunu
+        # açmasını isterim"). The numbers are written even when the picture
+        # could not be taken, so a failed one still has a file to show.
+        png, numbers = base.with_suffix(".png"), base.with_suffix(".json")
         if error:
-            self._set_status(t("snapshot_failed"), error=True)
+            self._set_status(t("snapshot_failed"), error=True, action=lambda: paths.reveal(numbers))
         else:
-            self._set_status(t("snapshot_saved", name=base.name), flash=True)
+            self._set_status(t("snapshot_saved", name=base.name), flash=True,
+                             action=lambda: paths.reveal(png))
         return "break"
 
     def _snapshot_state(self):
@@ -4512,11 +5322,14 @@ class ArtKitApp:
             }
         return state
 
-    def _set_status(self, text, flash=False, error=False):
+    def _set_status(self, text, flash=False, error=False, action=None):
+        """`action`, if given, is what a click on the message does, for as
+        long as the message stands; the pointer turns to a hand over it."""
         status = getattr(self, "_status", None)
         if status is None:
             return
-        status.configure(text=_shorten(text),
+        self._status_action = action
+        status.configure(text=_shorten(text), cursor="hand2" if action else "",
                          fg=theme.BREAK if error else (theme.ACCENT if flash else theme.ON_DIM))
         # One pending fade at a time (#v2.8.0). A message repeated faster than
         # it fades - the wheel under LOCK - used to flicker, every old fade
@@ -4574,6 +5387,8 @@ class ColourPicker(tk.Frame):
         self.draw_shades()
 
     def draw_shades(self):
+        """The square for the strip's hue. Its ring (`mark`) goes, and comes
+        back when the next colour is marked."""
         rows = []
         for y in range(self._sv_h):
             v = 1 - y / self._sv_h
@@ -4590,6 +5405,10 @@ class ColourPicker(tk.Frame):
     def pick_hue(self, event):
         self.hue = min(1.0, max(0.0, event.x / self._width))
         self.draw_shades()
+        self.hue_strip.delete("mark")
+        hx = self.hue * (self._width - 1)
+        self.hue_strip.create_rectangle(hx - 2, 0, hx + 2, self._hue_h - 1, outline="#ffffff",
+                                        width=1, tags="mark")
 
     def pick_shade(self, event, continuing=False):
         s = min(1.0, max(0.0, event.x / self._width))
@@ -4603,6 +5422,25 @@ class ColourPicker(tk.Frame):
         r, g, b = engine_io.rgb_of(hexcode)
         self.hue = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)[0]
         self.draw_shades()
+
+    def mark(self, rgb):
+        """Ring the colour on the shade square and tick its hue on the strip
+        (#v2.9.0), the way Photoshop's picker shows where it stands. A colour
+        from elsewhere - a swatch, the eyedropper, a typed code - brings the
+        strip round to its hue; a grey has none, so the strip stays."""
+        r, g, b = rgb
+        h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        if s > 0 and v > 0 and abs(h - self.hue) > 1 / (2 * self._width):
+            self.hue = h
+            self.draw_shades()
+        self.sv_square.delete("mark")
+        self.hue_strip.delete("mark")
+        x, y = s * (self._width - 1), (1 - v) * (self._sv_h - 1)
+        ring = "#000000" if v > 0.6 and s < 0.5 else "#ffffff"
+        self.sv_square.create_oval(x - 5, y - 5, x + 5, y + 5, outline=ring, width=2, tags="mark")
+        hx = self.hue * (self._width - 1)
+        self.hue_strip.create_rectangle(hx - 2, 0, hx + 2, self._hue_h - 1, outline="#ffffff",
+                                        width=1, tags="mark")
 
 
 class ColourDialog(dialogs.Dialog):
@@ -5386,6 +6224,8 @@ HELP_TEXT = [
     ("BUTTONS", None),
     ("SAVE", "write the open drawing to disk now (every stroke is also autosaved)"),
     ("DRAW / ERASE / FILL", "paint one square · clear one square · flood the connected area"),
+    ("SWAP", "click a pixel: every pixel of that colour becomes the ink, as one undo. With a SELECT "
+             "rectangle made first, only inside it. Hovering outlines the pixels it would change"),
     ("SELECT", "drag a rectangle. Press inside it and drag to move those cells; "
                "{mod}+C copies, then click a cell (even in another drawing) to paste there; "
                "{mod}+X / {mod}+V cut / floating paste; Delete clears; Enter drops a floating block; "
@@ -5401,20 +6241,38 @@ HELP_TEXT = [
     ("#rrggbb  +", "the ink. Click to type a new code, double-click to select it, + adds it to favourites"),
     ("Favourite colours", "your own set — right-click a swatch to remove it"),
     ("Ready colours", "Pixel Pomo's theme tones plus pixel-art staples"),
-    ("Colour", "hue strip on top, light/dark square below; click or drag"),
+    ("Colour", "hue strip on top, light/dark square below; click or drag. A ring marks the ink on the "
+               "square and a tick its hue on the strip"),
+    ("  now / was", "the ink, over the colour it replaced \u2014 click WAS to go back to it"),
+    ("  H S B \u00b7 R G B", "the ink as numbers; type one and press Enter"),
     ("Symmetry: OFF", "plain painting"),
     ("Symmetry: MIRROR", "a bright line sits BETWEEN pixels; painting along it is mirrored. "
                         "Drag the line to move it, drag an end to resize, or PLACE BAR and click a new spot"),
-    ("Symmetry: STICK", "the same between-pixel line; placing it copies `length` rows (\u2502 90\u00b0) or columns "
-                        "(\u2500 180\u00b0) across it \u2014 a strip symmetry stamp"),
     ("  \u2502 90\u00b0 / \u2500 180\u00b0", "the line's direction: standing or lying"),
     ("  length", "how many rows/columns the line covers. Drag either END to change it on the canvas"),
-    ("WITH / WITHOUT GRID", "show or hide the cell lines over the drawing \u2014 sits just above UPDATE / GUIDE"),
+    ("Symmetry: REVERSE", "the SELECT rectangle, turned over and copied beside itself as one undo step. "
+                         "The button glows once something is selected; OFF hides the panel"),
+    ("  X / Y / X+Y", "the axis it is turned over across: X upside down, Y left \u2194 right, both half round"),
+    ("  the eight arrows", "which side the copy goes: beside, above, below or diagonally off a corner. "
+                          "A dashed blue outline on the canvas shows where it will land. The square in "
+                          "the middle (or the pressed arrow again) takes the arrow away"),
+    ("  EQUAL / X \u00b7 Y", "the distance: EQUAL is one number of empty cells between the two (15 toward "
+                        "the lower left is 15 across AND 15 down), X \u00b7 Y gives them apart. 0 is right beside it"),
+    ("  COPY REVERSED", "writes the copy; R or Enter does the same. The original stays selected for the "
+                       "next arrow. Moving or dropping the selection lets go of REVERSE, and so does "
+                       "pressing it again"),
+    ("WITH / WITHOUT GRID / VIEW ONLY", "show or hide the cell lines over the drawing, or VIEW ONLY: the drawing as it "
+                                   "looks \u2014 sits just above UPDATE / GUIDE"),
     ("LANGUAGE", "English / T\u00fcrk\u00e7e / Polski / Deutsch. Button boxes keep their size; type shrinks if needed"),
     ("\u2630 (library)", "collapses the drawing list to the rail; click again to expand. Sits above the "
                          "scrollbar, on one line with ALL and FIT"),
     ("Under the canvas", "total, empty and painted pixel counts, the colours in the drawing "
                          "(click one to use it; \u2039 \u203a pages overflow), the cell and colour under the cursor"),
+    ("COORDS (bottom right)", "shows or hides the rulers: x1 x2 \u2026 over the canvas and y1 y2 \u2026 down "
+                              "its left, like a spreadsheet's headings \u2014 every cell its own box, the type "
+                              "shrinking as the zoom goes out; the selection is shaded on them and the cell under "
+                              "the pointer lit. Press x1 to select all of column x1, y1 all of row y1; drag along "
+                              "a ruler for several; the corner between them selects the whole drawing. Cells count from 1 everywhere, the readout beside the button too"),
     ("Over the canvas", "the camera. FIT zooms until the whole drawing fills the pane - below 1 px a "
                         "cell for one bigger than the pane, and the wheel goes down to the scale of the "
                         "corner's smallest picture (1/10 px for a 600-wide drawing)"),
@@ -5428,9 +6286,9 @@ HELP_TEXT = [
     ("1x / squint", "the drawing at real size, and at squint-test distance (a drawing too big for the "
                     "corner shows as 1/2x, 1/3x\u2026 - every pixel of it the average of the cells it stands "
                     "for, so a one-cell line still shows)"),
-    ("\u2610 LOOK", "beside squint: the canvas shows the drawing as it looks \u2014 no checkerboard, no cell "
-               "lines, no symmetry line \u2014 and nothing is drawn, erased or resized until it is "
-               "unticked. Zoom, pan and the eyedropper still work"),
+    ("VIEW ONLY", "the third of the row over UPDATE / GUIDE: the canvas shows the drawing as it looks \u2014 "
+             "no checkerboard, no cell lines, no symmetry line \u2014 and nothing is drawn, erased or "
+             "resized until VIEW ONLY is pressed again or a GRID button is. Zoom, pan and the eyedropper still work"),
     ("W \u00d7 H", "the drawing's size \u2014 click it to resize. Or drag an edge or a corner of the "
               "drawing on the canvas: out adds rows / columns, in takes them away; {mod}+Z undoes a "
               "whole drag at once. The grab lies just OUTSIDE the edge, so painting the border cells "
@@ -5471,17 +6329,18 @@ HELP_TEXT = [
     ("{mod}+Z / {mod}+Y", "undo / redo  ({mod}+Shift+Z also redoes) — strokes, colour picks, grid "
                           "and symmetry changes, in the order they happened"),
     ("{mod}+N", "new drawing"),
-    ("B / E / F / S", "brush / eraser / fill / select"),
+    ("B / E / F / S / C", "brush / eraser / fill / select / swap colour"),
     ("{mod}+C / X / V", "copy / cut / paste \u2014 after copy, click a cell to paste there"),
-    ("Enter \u00b7 Delete \u00b7 Esc \u00b7 arrows", "drop the floating block \u00b7 clear the selection \u00b7 dismiss selection \u00b7 nudge the block"),
-    ("M", "symmetry: OFF → MIRROR → STICK"),
+    ("Enter \u00b7 Delete \u00b7 Esc \u00b7 arrows", "drop the floating block (under REVERSE: copy the selection reversed) \u00b7 clear the selection \u00b7 dismiss selection \u00b7 nudge the block"),
+    ("M", "symmetry: OFF → MIRROR → REVERSE"),
+    ("R", "under REVERSE: copy the selection reversed (COPY REVERSED)"),
     ("+ / −  or mouse wheel", "zoom in / out (not under LOCK)"),
     ("Space+drag · middle button", "pan the view; Shift+wheel pans sideways (not under LOCK)"),
     ("Right-click on the canvas", "eyedropper: the colour under the cursor becomes the ink"),
     ("F1 / Esc", "open / close this guide"),
     ("F12", "TEST build only: a snapshot - the window as it is now and the numbers behind it "
             "(zoom, pane, camera, drawing), saved into snapshots/ in the data folder - for "
-            "showing what went wrong"),
+            "showing what went wrong. Click the \u201csnapshot\u201d message top right to see the file"),
 ]
 TEST_ONLY_HELP = {"F12"}   # rows the release build does not show: it has no such key
 

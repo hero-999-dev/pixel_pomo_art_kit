@@ -43,8 +43,21 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(again.tool, "fill")
         self.assertEqual(again.symmetry, {"orientation": "horizontal", "length": 9, "mode": "off"},
                          "mode is kept when not given")
-        again.set_symmetry("vertical", 3, "stick")
-        self.assertEqual(Settings(self.path).symmetry["mode"], "stick")
+        again.set_symmetry("vertical", 3, "reverse")
+        self.assertEqual(Settings(self.path).symmetry["mode"], "reverse")
+
+    def test_reverse_panel_round_trips_and_ignores_junk(self):
+        s = Settings(self.path)
+        self.assertEqual(s.reverse, {"axis": "y", "direction": "right", "spacing": "same",
+                                     "gap": 0, "gap_x": 0, "gap_y": 0})
+        s.set_reverse(axis="xy", direction="down_left", gap=15, bogus=1)
+        again = Settings(self.path)
+        self.assertEqual((again.reverse["axis"], again.reverse["direction"], again.reverse["gap"]),
+                         ("xy", "down_left", 15))
+        self.assertNotIn("bogus", again.reverse)
+        self.path.write_text(json.dumps({"reverse": {"gap": "lots", "axis": "x"}}), encoding="utf-8")
+        self.assertEqual(Settings(self.path).reverse["gap"], 0, "a wrong type falls back")
+        self.assertEqual(Settings(self.path).reverse["axis"], "x")
 
     def test_an_old_settings_file_without_a_mode_still_reads(self):
         self.path.write_text(json.dumps({"symmetry": {"orientation": "horizontal", "length": 7}}),
@@ -160,3 +173,15 @@ class ArtistRenameTest(unittest.TestCase):
             self.assertNotEqual(other, mir)
             s.forget_artist("Ola Górecka")
             self.assertNotIn("Ola Górecka", s.data["artist_colours"])
+
+
+class OfferedDesignsTest(unittest.TestCase):
+    def test_offered_designs_accumulate_and_persist(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "s.json"
+        s = Settings(path)
+        self.assertEqual(s.offered_designs, [])
+        s.offer_designs(["A/x", "B/y"])
+        s.offer_designs(["A/x", "C/z"])
+        self.assertEqual(Settings(path).offered_designs, ["A/x", "B/y", "C/z"])
